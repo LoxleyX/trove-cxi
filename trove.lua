@@ -990,26 +990,17 @@ local function renderItemDetail(res, storedQty)
         if isWeapon then
             imgui.TextColored(COLORS.yellow, string.format('DMG:%d  Delay:%d', res.Damage, res.Delay));
         end
-
-        if res.Level > 0 or res.Jobs > 0 then
-            local jobStr = getJobList(res.Jobs) or '';
-            local lvlStr = '';
-            if res.Level > 0 then
-                lvlStr = string.format('Lv%d ', res.Level);
-                if res.ItemLevel > 0 and res.ItemLevel ~= res.Level then
-                    lvlStr = string.format('Lv%d (iLv%d) ', res.Level, res.ItemLevel);
-                end
-            end
-            imgui.TextColored(COLORS.jobText, lvlStr .. jobStr);
-        end
     end
 
     local desc = getItemString(res, 'Description', 1);
     if desc ~= nil and #desc > 0 then
         -- Weapons have "DMG:N Delay:N" at the start of the description, which
         -- we already render in yellow above. Strip it so it's not duplicated.
+        -- Hand-to-Hand weapons use "DMG:+N" / "Delay:+N" (signed), so allow
+        -- a leading + or -. The trailing class stays whitespace-only so any
+        -- other stats that share the line (e.g. "... HP+35 STR+4") survive.
         if isWeapon then
-            desc = desc:gsub("^%s*DMG:%s*%d+%s*Delay:%s*%d+%s*[\r\n]*", "")
+            desc = desc:gsub("^%s*DMG:%s*[%+%-]?%d+%s*Delay:%s*[%+%-]?%d+%s*[\r\n]*", "")
         end
         if #desc > 0 then
             imgui.Spacing();
@@ -1017,6 +1008,21 @@ local function renderItemDetail(res, storedQty)
             imgui.TextColored(COLORS.desc, desc);
             imgui.PopTextWrapPos();
         end
+    end
+
+    -- Level / jobs line sits beneath the description on equipment so the
+    -- requirement info reads as a footer rather than a header.
+    if isEquip and (res.Level > 0 or res.Jobs > 0) then
+        local jobStr = getJobList(res.Jobs) or '';
+        local lvlStr = '';
+        if res.Level > 0 then
+            lvlStr = string.format('Lv%d ', res.Level);
+            if res.ItemLevel > 0 and res.ItemLevel ~= res.Level then
+                lvlStr = string.format('Lv%d (iLv%d) ', res.Level, res.ItemLevel);
+            end
+        end
+        imgui.Spacing();
+        imgui.TextColored(COLORS.jobText, lvlStr .. jobStr);
     end
 end
 
