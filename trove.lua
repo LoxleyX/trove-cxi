@@ -1074,27 +1074,56 @@ local function renderItemRow(item, index)
     local wx, wy = imgui.GetWindowPos();
     local ww = imgui.GetWindowWidth();
 
-    dl:AddText({ wx + 34, wy + 7 }, imgui.GetColorU32(COLORS.white), item.name);
+    -- Compute right-edge layout first so the name can be clipped to fit.
+    -- Badges are filled rects + centered text (same look as the tooltip
+    -- badges) so the "Ex" / "Rare" labels don't visually hug the quantity.
+    local res    = getItemRes(item.id);
+    local isRare = res ~= nil and bit.band(res.Flags, FLAG_RARE) ~= 0;
+    local isEx   = res ~= nil and bit.band(res.Flags, FLAG_EX)   ~= 0;
 
-    local res = getItemRes(item.id);
     local qtyStr   = string.format('x%d', item.qty);
     local qtyW     = imgui.CalcTextSize(qtyStr);
     local qtyColor = (item.qty <= 5) and COLORS.qtyLow or COLORS.qty;
-    local tagX = wx + ww - qtyW - 8;
-    dl:AddText({ tagX, wy + 7 }, imgui.GetColorU32(qtyColor), qtyStr);
+    local qtyX     = wx + ww - qtyW - 8;
 
-    if res ~= nil then
-        local isRare = bit.band(res.Flags, FLAG_RARE) ~= 0;
-        local isEx   = bit.band(res.Flags, FLAG_EX) ~= 0;
-        if isEx then
-            tagX = tagX - 16;
-            dl:AddText({ tagX, wy + 7 }, imgui.GetColorU32(COLORS.ex), 'Ex');
+    local GAP         = 6;
+    local BADGE_H     = 16;
+    local BADGE_PAD_X = 4;  -- horizontal padding inside each badge
+    local EX_TEXT_W   = imgui.CalcTextSize('Ex');
+    local R_TEXT_W    = imgui.CalcTextSize('R');
+    local EX_W        = EX_TEXT_W + BADGE_PAD_X * 2;
+    local R_W         = R_TEXT_W  + BADGE_PAD_X * 2;
+    local badgeTop    = wy + 6;
+
+    local exX    = isEx   and (qtyX - GAP - EX_W) or qtyX;
+    local rareX  = isRare and (exX  - (isEx and GAP or 0) - R_W) or exX;
+
+    -- Truncate the name if it would run into the tag column.
+    local nameX    = wx + 34;
+    local nameMaxW = (isRare and rareX or (isEx and exX or qtyX)) - GAP - nameX;
+    local displayName = item.name or '';
+    if imgui.CalcTextSize(displayName) > nameMaxW then
+        while #displayName > 1 and imgui.CalcTextSize(displayName .. '...') > nameMaxW do
+            displayName = displayName:sub(1, -2);
         end
-        if isRare then
-            tagX = tagX - 13;
-            dl:AddText({ tagX, wy + 7 }, imgui.GetColorU32(COLORS.rare), 'R');
-        end
+        displayName = displayName .. '...';
     end
+
+    dl:AddText({ nameX, wy + 7 }, imgui.GetColorU32(COLORS.white), displayName);
+
+    if isRare then
+        dl:AddRectFilled({ rareX, badgeTop }, { rareX + R_W, badgeTop + BADGE_H },
+            imgui.GetColorU32(COLORS.rareBg));
+        dl:AddText({ rareX + BADGE_PAD_X, wy + 7 },
+            imgui.GetColorU32(COLORS.rare), 'R');
+    end
+    if isEx then
+        dl:AddRectFilled({ exX, badgeTop }, { exX + EX_W, badgeTop + BADGE_H },
+            imgui.GetColorU32(COLORS.exBg));
+        dl:AddText({ exX + BADGE_PAD_X, wy + 7 },
+            imgui.GetColorU32(COLORS.ex), 'Ex');
+    end
+    dl:AddText({ qtyX, wy + 7 }, imgui.GetColorU32(qtyColor), qtyStr);
 
     imgui.EndChild();
     imgui.PopStyleColor(1);
