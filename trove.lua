@@ -49,6 +49,7 @@ local C2S = {
     GET_CURRENCY    = 7,
     GET_POINTS      = 8,
     GET_SQUIRE      = 9,
+    GET_RECIPE      = 10,
 };
 
 local S2C = {
@@ -61,6 +62,7 @@ local S2C = {
     CURRENCY_ENTRY = 6,
     POINTS_ENTRY   = 7,
     SQUIRE_ENTRY   = 8,
+    RECIPE         = 11,
 };
 
 -- LOCKED reason codes (server → client)
@@ -459,6 +461,13 @@ local function sendGetCurrency()   sendAction(C2S.GET_CURRENCY);   end
 local function sendGetPoints()     sendAction(C2S.GET_POINTS);     end
 local function sendGetSquire()     sendAction(C2S.GET_SQUIRE);     end
 
+local function sendGetRecipe(itemId)
+    local p = makePacket();
+    p[5] = C2S.GET_RECIPE;
+    writeU16(p, 0x08, itemId);
+    AshitaCore:GetPacketManager():AddOutgoingPacket(PACKET_ID, p);
+end
+
 local function sendGetCategory(ahCat)
     local p = makePacket();
     p[5]  = C2S.GET_CATEGORY;
@@ -528,6 +537,7 @@ local TAB_EBOX     = 1;
 local TAB_CURRENCY = 2;
 local TAB_POINTS   = 3;
 local TAB_SQUIRE   = 4;
+local TAB_CRAFTING = 5;
 
 local state = {
     -- Player capability
@@ -557,6 +567,13 @@ local state = {
     -- Squire state
     squire        = {},
     squireLoaded  = false,
+
+    -- Crafting state
+    craftRecipes        = {},     -- array of parsed recipe tables from server
+    craftLoaded         = false,  -- true after END_LIST received
+    craftItemId         = 0,      -- item we requested recipes for
+    craftItemName       = '',
+    batchWithdrawCount  = 0,      -- pending WITHDRAW ACKs for batch prepare
 
     -- Active tab
     activeTab      = TAB_EBOX,
@@ -625,15 +642,21 @@ local function invalidateEbox()
 end
 
 local ui = {
-    isOpen       = { false },
-    searchBuf    = { '' },
-    searchSize   = 32,
-    selectedItem = nil,
-    keybindDone  = false,
+    isOpen          = { false },
+    searchBuf       = { '' },
+    searchSize      = 32,
+    selectedItem    = nil,
+    keybindDone     = false,
+    craftSearchBuf  = { '' },
+    craftSearchSize = 32,
 };
 
 local searchDebounce = {
     lastBuf = '', changedAt = 0, delay = 0.3, pending = false,
+};
+
+local craftDebounce = {
+    lastBuf = '', changedAt = 0, delay = 0.3, pending = false, results = {},
 };
 
 local function setStatus(msg, isErr)
@@ -801,6 +824,84 @@ end
 ------------------------------------------------------------
 -- Packet handler (S2C)
 ------------------------------------------------------------
+-- Auto-refresh crafting recipe when inventory changes so ingredient
+-- counts stay live. Debounced to avoid spamming during bulk operations.
+local craftRefreshDebounce = { pending = false, at = 0, delay = 2.0, synthCooldownUntil = 0 };
+
+-- Catch the synth result packet (0x06F COMBINE_ANS) and display the
+-- outcome in the Trove status bar. The FFXI client drops this packet when
+-- its internal "synthesizing" flag isn't set (which AddOutgoingPacket
+-- bypasses), so we handle it ourselves. Don't block — let the client
+-- process it too in case `/lastsynth` or native UI set the flag.
+local SYNTH_RESULT_MSG = {
+    [0x00] = 'Synthesis succeeded!',
+    [0x01] = 'Synthesis failed. Crystal lost.',
+    [0x02] = 'Synthesis interrupted! Materials lost.',
+    [0x03] = 'Bad recipe combination.',
+    [0x04] = 'Synthesis canceled.',
+    [0x06] = 'Skill too low for this recipe.',
+    [0x07] = 'Cannot hold another rare item.',
+    [0x0C] = 'Desynthesis succeeded!',
+    [0x0D] = 'Must wait longer.',
+    [0x0E] = 'Synthesis interrupted! Materials lost.',
+};
+
+ashita.events.register('packet_in', 'trove_synth_result', function(e)
+    if e.id ~= 0x06F then return; end
+
+    local result = struct.unpack('B', e.data_modified, 0x04 + 1);
+    local qty    = struct.unpack('B', e.data_modified, 0x06 + 1);
+    local itemId = readU16(e.data_modified, 0x08);
+
+    local msg = SYNTH_RESULT_MSG[result];
+    if msg == nil then msg = string.format('Synth result: %d', result); end
+
+    local isSuccess = (result == 0x00 or result == 0x0C);
+    if isSuccess and itemId > 0 then
+        local res = getItemRes(itemId);
+        local name = res and shiftjis_to_utf8(res.Name[1]) or tostring(itemId);
+        msg = msg .. string.format(' %s x%d', name, qty);
+    end
+
+    state.synthResultMsg     = msg;
+    state.synthResultIsErr   = not isSuccess;
+    state.synthResultUntil   = os.clock() + 4;
+
+    -- Suppress the inventory-watch auto-refresh for a few seconds so this
+    -- status message isn't immediately wiped by a recipe reload triggered
+    -- by the inventory changes from the synth consuming materials.
+    craftRefreshDebounce.pending            = false;
+    craftRefreshDebounce.synthCooldownUntil = os.clock() + 4;
+
+    -- Schedule a recipe refresh after the message clears so ingredient
+    -- counts update (the inventory-watch packets arrived during the
+    -- cooldown and were suppressed, so we need an explicit refresh).
+    ashita.tasks.once(4.5, function()
+        if state.craftItemId > 0 and state.craftLoaded then
+            state.craftRecipes   = {};
+            state.craftLoaded    = false;
+            state.pendingRequest = 'crafting';
+            sendGetRecipe(state.craftItemId);
+        end
+    end);
+
+    -- Clear the craft cooldown early on result so the player can
+    -- immediately click Craft again (server enforces the real 15s).
+    state.synthCooldownUntil = os.clock() + 1;
+end);
+
+
+ashita.events.register('packet_in', 'trove_inv_watch', function(e)
+    -- 0x01F = item assign, 0x020 = item update/quantity change
+    if e.id ~= 0x01F and e.id ~= 0x020 then return; end
+    if state.activeTab == TAB_CRAFTING and state.craftItemId > 0 and state.craftLoaded then
+        -- Don't queue a refresh while the synth result message is still showing.
+        if os.clock() < craftRefreshDebounce.synthCooldownUntil then return; end
+        craftRefreshDebounce.pending = true;
+        craftRefreshDebounce.at      = os.clock();
+    end
+end);
+
 ashita.events.register('packet_in', 'trove_packet_in', function(e)
     if e.id ~= PACKET_ID then return; end
     e.blocked = true;
@@ -818,6 +919,9 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
             state.points = {};
         elseif state.pendingRequest == 'squire' then
             state.squire = {};
+        elseif state.pendingRequest == 'crafting' then
+            state.craftRecipes = {};
+            state.craftLoaded  = false;
         else
             state.items = {};
             state.viewTotal = 0;
@@ -847,6 +951,8 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
         elseif state.pendingRequest == 'squire' then
             state.squireLoaded        = true;
             state.fetchedAt.squire    = now;
+        elseif state.pendingRequest == 'crafting' then
+            state.craftLoaded         = true;
         else
             state.viewTotal = readU16(e.data_modified, 0x08);
             state.viewQty   = readU32(e.data_modified, 0x0C);
@@ -950,6 +1056,59 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
         return;
     end
 
+    if action == S2C.RECIPE then
+        local ingCount   = struct.unpack('B', e.data_modified, 0x05 + 1);
+        local desynth    = struct.unpack('B', e.data_modified, 0x06 + 1);
+        local craftable  = readU16(e.data_modified, 0x08);
+        local crystalId  = readU16(e.data_modified, 0x0A);
+        local crystalInv = readU16(e.data_modified, 0x0C);
+        local crystalEbx = readU32(e.data_modified, 0x0E);
+
+        -- Results (NQ + HQ1-3)
+        local results = {};
+        for r = 0, 3 do
+            local off = 0x12 + r * 3;
+            local id  = readU16(e.data_modified, off);
+            local qty = struct.unpack('B', e.data_modified, off + 2 + 1);
+            if id > 0 then
+                results[r] = { id = id, qty = qty };
+            end
+        end
+
+        -- Skills
+        local SKILL_NAMES = { 'Wood', 'Smith', 'Gold', 'Cloth', 'Leather', 'Bone', 'Alchemy', 'Cook' };
+        local skills = {};
+        for s = 0, 7 do
+            local v = struct.unpack('B', e.data_modified, 0x1E + s + 1);
+            if v > 0 then
+                skills[SKILL_NAMES[s + 1]] = v;
+            end
+        end
+
+        -- Ingredients
+        local ingredients = {};
+        for g = 0, ingCount - 1 do
+            local off   = 0x26 + g * 9;
+            local id    = readU16(e.data_modified, off);
+            local need  = struct.unpack('B', e.data_modified, off + 2 + 1);
+            local inv   = readU16(e.data_modified, off + 3);
+            local ebox  = readU32(e.data_modified, off + 5);
+            if id > 0 then
+                ingredients[#ingredients + 1] = { id = id, need = need, inv = inv, ebox = ebox };
+            end
+        end
+
+        table.insert(state.craftRecipes, {
+            desynth     = (desynth ~= 0),
+            craftable   = craftable,
+            crystal     = { id = crystalId, inv = crystalInv, ebox = crystalEbx },
+            results     = results,
+            skills      = skills,
+            ingredients = ingredients,
+        });
+        return;
+    end
+
     if action == S2C.ACK then
         local requestAction = struct.unpack('B', e.data_modified, 0x05 + 1);
         local success       = struct.unpack('B', e.data_modified, 0x06 + 1);
@@ -965,16 +1124,28 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
         end
 
         if success == 1 and requestAction == C2S.WITHDRAW then
-            -- Withdraw changed ebox state on the server. Invalidate the ebox
-            -- caches so the scheduled refresh actually hits the server and
-            -- reconciles the new quantities.
             invalidateEbox();
-            ashita.tasks.once(0.8, function()
-                refreshCurrentView();
-                if state.currentCategory ~= nil or state.searchActive then
-                    sendGetSummary();
+
+            -- Batch mode: count down and refresh recipe on last ACK.
+            if state.batchWithdrawCount > 0 then
+                state.batchWithdrawCount = state.batchWithdrawCount - 1;
+                if state.batchWithdrawCount == 0 and state.craftItemId > 0 then
+                    ashita.tasks.once(0.8, function()
+                        state.craftRecipes  = {};
+                        state.craftLoaded   = false;
+                        state.pendingRequest = 'crafting';
+                        sendGetRecipe(state.craftItemId);
+                    end);
                 end
-            end);
+            else
+                -- Normal single-withdraw refresh (E.Box tab).
+                ashita.tasks.once(0.8, function()
+                    refreshCurrentView();
+                    if state.currentCategory ~= nil or state.searchActive then
+                        sendGetSummary();
+                    end
+                end);
+            end
         end
         return;
     end
@@ -1967,6 +2138,497 @@ local function renderSquireTab()
 end
 
 ------------------------------------------------------------
+-- Render: Crafting tab
+------------------------------------------------------------
+-- Client-side item name index for instant search. Built lazily on first use.
+local craftIndex     = nil; -- array of { id, name (lowercase sortname) }
+local craftIndexSize = 0;
+
+local function buildCraftIndex()
+    if craftIndex ~= nil then return; end
+    craftIndex = {};
+    local rm = AshitaCore:GetResourceManager();
+    for id = 1, 65535 do
+        local res = rm:GetItemById(id);
+        if res ~= nil then
+            local n = res.Name[1];
+            if n ~= nil and #n > 0 then
+                craftIndex[#craftIndex + 1] = { id = id, name = n:lower() };
+            end
+        end
+    end
+    craftIndexSize = #craftIndex;
+end
+
+local function searchCraftItems(query)
+    buildCraftIndex();
+    local q = query:lower();
+    if #q == 0 then return {}; end
+    local results = {};
+    for i = 1, craftIndexSize do
+        if craftIndex[i].name:find(q, 1, true) ~= nil then
+            results[#results + 1] = craftIndex[i];
+            if #results >= 20 then break; end
+        end
+    end
+    return results;
+end
+
+local function requestRecipe(itemId)
+    local res = getItemRes(itemId);
+    state.craftItemId   = itemId;
+    state.craftItemName = (res ~= nil and res.Name[1] ~= nil) and shiftjis_to_utf8(res.Name[1]) or tostring(itemId);
+    state.craftRecipes  = {};
+    state.craftLoaded   = false;
+    state.pendingRequest = 'crafting';
+    sendGetRecipe(itemId);
+end
+
+-- Build and send a 0x096 synth packet from a recipe. Returns nil on success
+-- or an error string if ingredients aren't all in main inventory.
+local function trySynth(recipe)
+    local inv = AshitaCore:GetMemoryManager():GetInventory();
+    local maxSlots = inv:GetContainerCountMax(0);
+
+    -- Map inventory: itemId → sorted list of { slot, avail }
+    local invMap = {};
+    for slot = 1, maxSlots do
+        local ci = inv:GetContainerItem(0, slot);
+        if ci ~= nil and ci.Id > 0 and ci.Count > 0 then
+            if not invMap[ci.Id] then invMap[ci.Id] = {}; end
+            invMap[ci.Id][#invMap[ci.Id] + 1] = { slot = slot, avail = ci.Count };
+        end
+    end
+
+    -- Find crystal slot
+    local cSlots = invMap[recipe.crystal.id];
+    if not cSlots or #cSlots == 0 then return 'Crystal not in inventory'; end
+    local crystalSlot = cSlots[1].slot;
+
+    -- Find ingredient slots (respecting stacks for duplicate ingredients)
+    local itemNos  = {};
+    local tableNos = {};
+    local slotUsed = {}; -- slot → count consumed so far
+
+    for _, ing in ipairs(recipe.ingredients) do
+        local slots = invMap[ing.id];
+        if not slots then return 'Missing: ' .. tostring(ing.id); end
+        for _ = 1, ing.need do
+            local found = false;
+            for _, s in ipairs(slots) do
+                local used = slotUsed[s.slot] or 0;
+                if used < s.avail then
+                    itemNos[#itemNos + 1]   = ing.id;
+                    tableNos[#tableNos + 1] = s.slot;
+                    slotUsed[s.slot] = used + 1;
+                    found = true;
+                    break;
+                end
+            end
+            if not found then return 'Not enough in inventory'; end
+        end
+    end
+
+    -- Build packet 0x096. Server expects PacketSize 0x12 (36 bytes exactly).
+    -- Ashita derives the size field from table length, so table must be 36.
+    local p = {};
+    for i = 1, 36 do p[i] = 0; end
+
+    -- p[5] = HashNo (0), p[6] = padding (0)
+    writeU16(p, 0x06, recipe.crystal.id);  -- Crystal
+    p[0x08 + 1] = crystalSlot;             -- CrystalIdx
+    p[0x09 + 1] = #itemNos;               -- Items count
+    for i = 1, #itemNos do
+        writeU16(p, 0x0A + (i - 1) * 2, itemNos[i]);
+    end
+    for i = 1, #tableNos do
+        p[0x1A + i] = tableNos[i];
+    end
+
+    AshitaCore:GetPacketManager():AddOutgoingPacket(0x96, p);
+    return nil;
+end
+
+-- Ingredient availability color.
+local function ingredientColor(inv, ebox, need)
+    if inv >= need then return COLORS.green or { 0.40, 1.00, 0.40, 1.00 }; end
+    if (inv + ebox) >= need then return COLORS.blue or { 0.50, 0.70, 1.00, 1.00 }; end
+    return COLORS.rare or { 1.00, 0.40, 0.40, 1.00 };
+end
+
+local SKILL_COLORS = {
+    Wood     = { 0.45, 0.80, 0.45, 1.00 },
+    Smith    = { 0.70, 0.70, 0.80, 1.00 },
+    Gold     = { 1.00, 0.90, 0.40, 1.00 },
+    Cloth    = { 1.00, 0.65, 0.85, 1.00 },
+    Leather  = { 0.85, 0.65, 0.40, 1.00 },
+    Bone     = { 0.80, 0.75, 0.70, 1.00 },
+    Alchemy  = { 0.75, 0.55, 1.00, 1.00 },
+    Cook     = { 1.00, 0.75, 0.40, 1.00 },
+};
+
+-- Calculate what needs pulling from ebox for N crafts.
+-- mode: 'missing' = only the shortfall, 'all' = full sets.
+-- Returns: { pullList = { {id, qty}, ... }, feasible = bool }
+local function calcPrepare(recipe, count, mode)
+    local pulls = {};
+    local feasible = true;
+
+    -- Crystal
+    local crNeed = (mode == 'all') and count or math.max(0, count - recipe.crystal.inv);
+    crNeed = math.min(crNeed, recipe.crystal.ebox);
+    if (mode == 'all' and recipe.crystal.ebox < count)
+       or (mode == 'missing' and recipe.crystal.inv < count and recipe.crystal.ebox < (count - recipe.crystal.inv)) then
+        feasible = false;
+    end
+    if crNeed > 0 then
+        pulls[#pulls + 1] = { id = recipe.crystal.id, qty = crNeed };
+    end
+
+    -- Ingredients
+    for _, ing in ipairs(recipe.ingredients) do
+        local totalNeed = ing.need * count;
+        local delta;
+        if mode == 'all' then
+            delta = totalNeed;
+        else
+            delta = math.max(0, totalNeed - ing.inv);
+        end
+        delta = math.min(delta, ing.ebox);
+
+        if (mode == 'all' and ing.ebox < totalNeed)
+           or (mode == 'missing' and ing.inv < totalNeed and ing.ebox < (totalNeed - ing.inv)) then
+            feasible = false;
+        end
+        if delta > 0 then
+            pulls[#pulls + 1] = { id = ing.id, qty = delta };
+        end
+    end
+
+    return { pullList = pulls, feasible = feasible };
+end
+
+local function executePrepare(pullList)
+    if #pullList == 0 then return; end
+    state.batchWithdrawCount = #pullList;
+    for _, pull in ipairs(pullList) do
+        sendWithdraw(pull.id, pull.qty);
+    end
+end
+
+local PREPARE_COUNTS = { 1, 3, 6, 12 };
+
+local function renderRecipe(recipe, index)
+    -- Skills line
+    local skillParts = {};
+    for name, level in pairs(recipe.skills) do
+        table.insert(skillParts, string.format('%s %d', name, level));
+    end
+    if #skillParts > 0 then
+        imgui.TextColored(COLORS.dimmed, table.concat(skillParts, ' / '));
+    end
+    if recipe.desynth then
+        imgui.SameLine(0, 8);
+        imgui.TextColored(COLORS.rare or { 1, 0.4, 0.4, 1 }, '(Desynth)');
+    end
+
+    -- Craftable badge (right-aligned)
+    local craftLabel = string.format('Can craft: %d', recipe.craftable);
+    imgui.SameLine(imgui.GetWindowWidth() - imgui.CalcTextSize(craftLabel) - 16);
+    local craftColor = recipe.craftable > 0 and { 0.40, 1.00, 0.40, 1.00 } or { 1.00, 0.40, 0.40, 1.00 };
+    imgui.TextColored(craftColor, craftLabel);
+
+    imgui.Spacing();
+    imgui.Separator();
+    imgui.Spacing();
+
+    -- Crystal
+    local cr = recipe.crystal;
+    local crColor = ingredientColor(cr.inv, cr.ebox, 1);
+    if not renderIcon(cr.id, 20) then imgui.Dummy({ 20, 20 }); end
+    imgui.SameLine(0, 4);
+    local crRes = getItemRes(cr.id);
+    local crName = crRes and shiftjis_to_utf8(crRes.Name[1]) or tostring(cr.id);
+    imgui.TextColored(crColor, crName);
+    imgui.SameLine(0, 8);
+    imgui.TextColored(COLORS.dimmed, string.format('(%d/%d)', cr.inv + cr.ebox, 1));
+    if imgui.IsItemHovered() then
+        imgui.BeginTooltip();
+        imgui.TextColored(COLORS.header, crName);
+        imgui.TextColored(COLORS.dimmed, string.format('Inventory: %d  |  E.Box: %d', cr.inv, cr.ebox));
+        imgui.EndTooltip();
+    end
+
+    imgui.Spacing();
+
+    -- Ingredients
+    for _, ing in ipairs(recipe.ingredients) do
+        local color = ingredientColor(ing.inv, ing.ebox, ing.need);
+        if not renderIcon(ing.id, 20) then imgui.Dummy({ 20, 20 }); end
+        imgui.SameLine(0, 4);
+        local ingRes = getItemRes(ing.id);
+        local ingName = ingRes and shiftjis_to_utf8(ingRes.Name[1]) or tostring(ing.id);
+        local label = ing.need > 1 and string.format('%s x%d', ingName, ing.need) or ingName;
+        imgui.TextColored(color, label);
+        imgui.SameLine(0, 8);
+        imgui.TextColored(COLORS.dimmed, string.format('(%d/%d)', ing.inv + ing.ebox, ing.need));
+        if imgui.IsItemHovered() then
+            imgui.BeginTooltip();
+            imgui.TextColored(COLORS.header, ingName);
+            imgui.TextColored(COLORS.dimmed, string.format('Need: %d', ing.need));
+            imgui.TextColored(COLORS.dimmed, string.format('Inventory: %d  |  E.Box: %d', ing.inv, ing.ebox));
+            imgui.EndTooltip();
+        end
+    end
+
+    imgui.Spacing();
+    imgui.Separator();
+    imgui.Spacing();
+
+    -- Results: NQ then HQ1-3 (vertically stacked)
+    local nq = recipe.results[0];
+    if nq ~= nil then
+        if not renderIcon(nq.id, 20) then imgui.Dummy({ 20, 20 }); end
+        imgui.SameLine(0, 4);
+        local nqRes = getItemRes(nq.id);
+        local nqName = nqRes and shiftjis_to_utf8(nqRes.Name[1]) or tostring(nq.id);
+        local nqLabel = nq.qty > 1 and string.format('%s x%d', nqName, nq.qty) or nqName;
+        imgui.TextColored({ 0.40, 1.00, 0.40, 1.00 }, nqLabel);
+        if imgui.IsItemHovered() then renderTooltip({ id = nq.id, name = nqName, qty = 0 }); end
+
+        local HQ_TIER_COLORS = {
+            [1] = { 0.80, 0.80, 0.80, 1.00 },
+            [2] = { 0.50, 0.70, 1.00, 1.00 },
+            [3] = { 1.00, 0.90, 0.30, 1.00 },
+        };
+        for tier = 1, 3 do
+            local hq = recipe.results[tier];
+            if hq ~= nil and (hq.id ~= nq.id or hq.qty ~= nq.qty) then
+                if not renderIcon(hq.id, 20) then imgui.Dummy({ 20, 20 }); end
+                imgui.SameLine(0, 4);
+                local hqRes = getItemRes(hq.id);
+                local hqName = hqRes and shiftjis_to_utf8(hqRes.Name[1]) or tostring(hq.id);
+                local hqLabel = hq.qty > 1 and string.format('%s x%d', hqName, hq.qty) or hqName;
+                imgui.TextColored(HQ_TIER_COLORS[tier], string.format('HQ%d: %s', tier, hqLabel));
+                if imgui.IsItemHovered() then renderTooltip({ id = hq.id, name = hqName, qty = 0 }); end
+            end
+        end
+    end
+
+    imgui.Spacing();
+    imgui.Separator();
+    imgui.Spacing();
+
+    -- Prepare buttons (withdraw materials from E.Box)
+    local inFlight = state.batchWithdrawCount > 0;
+
+    -- Row 1: "Prepare Missing" — pull only the shortfall from ebox
+    -- Button palettes: amber for "missing only", teal for "all materials".
+    local BTN_MISSING       = { 0.55, 0.40, 0.15, 0.80 };
+    local BTN_MISSING_HOVER = { 0.65, 0.50, 0.20, 0.90 };
+    local BTN_MISSING_ACT   = { 0.60, 0.45, 0.18, 1.00 };
+    local BTN_ALL           = { 0.15, 0.40, 0.50, 0.80 };
+    local BTN_ALL_HOVER     = { 0.20, 0.50, 0.60, 0.90 };
+    local BTN_ALL_ACT       = { 0.18, 0.45, 0.55, 1.00 };
+    local BTN_DISABLED      = { 0.20, 0.18, 0.25, 0.40 };
+    local BTN_DISABLED_TEXT = { 0.40, 0.40, 0.40, 0.50 };
+
+    imgui.TextColored({ 0.90, 0.75, 0.40, 1.00 }, 'Withdraw missing:');
+    imgui.SameLine(0, 6);
+    for _, n in ipairs(PREPARE_COUNTS) do
+        local prep = calcPrepare(recipe, n, 'missing');
+        local enabled = prep.feasible and #prep.pullList > 0 and not inFlight;
+        if not enabled then
+            imgui.PushStyleColor(ImGuiCol_Button, BTN_DISABLED);
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_DISABLED);
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, BTN_DISABLED);
+            imgui.PushStyleColor(ImGuiCol_Text, BTN_DISABLED_TEXT);
+        else
+            imgui.PushStyleColor(ImGuiCol_Button, BTN_MISSING);
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_MISSING_HOVER);
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, BTN_MISSING_ACT);
+            imgui.PushStyleColor(ImGuiCol_Text, { 1, 1, 1, 1 });
+        end
+        local btnId = string.format('x%d##miss_%d_%d', n, index, n);
+        if imgui.Button(btnId, { 0, 22 }) and enabled then
+            executePrepare(prep.pullList);
+        end
+        imgui.PopStyleColor(4);
+        imgui.SameLine(0, 4);
+    end
+    imgui.NewLine();
+
+    -- Row 2: "Withdraw All" — pull full sets from ebox (teal)
+    imgui.TextColored({ 0.45, 0.80, 0.85, 1.00 }, 'Withdraw all:');
+    imgui.SameLine(0, 24);
+    for _, n in ipairs(PREPARE_COUNTS) do
+        local prep = calcPrepare(recipe, n, 'all');
+        local enabled = prep.feasible and #prep.pullList > 0 and not inFlight;
+        if not enabled then
+            imgui.PushStyleColor(ImGuiCol_Button, BTN_DISABLED);
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_DISABLED);
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, BTN_DISABLED);
+            imgui.PushStyleColor(ImGuiCol_Text, BTN_DISABLED_TEXT);
+        else
+            imgui.PushStyleColor(ImGuiCol_Button, BTN_ALL);
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_ALL_HOVER);
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, BTN_ALL_ACT);
+            imgui.PushStyleColor(ImGuiCol_Text, { 1, 1, 1, 1 });
+        end
+        local btnId = string.format('x%d##all_%d_%d', n, index, n);
+        if imgui.Button(btnId, { 0, 22 }) and enabled then
+            executePrepare(prep.pullList);
+        end
+        imgui.PopStyleColor(4);
+        imgui.SameLine(0, 4);
+    end
+    imgui.NewLine();
+
+    -- Craft button: sends the same 0x096 synth packet as the native menu.
+    -- Server validates everything (crystal, ingredients, skill, cooldown).
+    imgui.Spacing();
+    local synthCooldown = os.clock() < (state.synthCooldownUntil or 0);
+    local canCraft = not recipe.desynth and recipe.craftable > 0 and not inFlight and not synthCooldown;
+    local BTN_CRAFT       = { 0.25, 0.55, 0.25, 0.80 };
+    local BTN_CRAFT_HOVER = { 0.30, 0.65, 0.30, 0.90 };
+    local BTN_CRAFT_ACT   = { 0.28, 0.60, 0.28, 1.00 };
+    if not canCraft then
+        imgui.PushStyleColor(ImGuiCol_Button, BTN_DISABLED);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_DISABLED);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, BTN_DISABLED);
+        imgui.PushStyleColor(ImGuiCol_Text, BTN_DISABLED_TEXT);
+    else
+        imgui.PushStyleColor(ImGuiCol_Button, BTN_CRAFT);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, BTN_CRAFT_HOVER);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, BTN_CRAFT_ACT);
+        imgui.PushStyleColor(ImGuiCol_Text, { 1, 1, 1, 1 });
+    end
+    local craftBtnId = string.format('Craft##craft_%d', index);
+    if imgui.Button(craftBtnId, { -1, 26 }) and canCraft then
+        local err = trySynth(recipe);
+        if err then
+            setStatus(err, true);
+        else
+            state.synthCooldownUntil = os.clock() + 15;
+        end
+    end
+    imgui.PopStyleColor(4);
+end
+
+local function renderCraftingTab()
+    -- Search box
+    imgui.TextColored(COLORS.dimmed, 'Search for any item to view its crafting recipe:');
+    imgui.SetNextItemWidth(-1);
+    imgui.InputText('##craft_search', ui.craftSearchBuf, ui.craftSearchSize, ImGuiInputTextFlags_None);
+
+    -- Debounced client-side search
+    local buf = ui.craftSearchBuf[1];
+    if buf ~= craftDebounce.lastBuf then
+        craftDebounce.lastBuf   = buf;
+        craftDebounce.changedAt = os.clock();
+        craftDebounce.pending   = true;
+    end
+    if craftDebounce.pending and os.clock() - craftDebounce.changedAt >= craftDebounce.delay then
+        craftDebounce.pending = false;
+        craftDebounce.results = searchCraftItems(buf);
+    end
+
+    imgui.Spacing();
+
+    -- If we have a loaded recipe, show it
+    if state.craftLoaded and state.craftItemId > 0 then
+        -- Back button
+        imgui.PushStyleColor(ImGuiCol_Button, COLORS.btnBack or { 0.3, 0.25, 0.4, 0.8 });
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.btnBackH or { 0.4, 0.35, 0.5, 0.9 });
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.btnBackA or { 0.35, 0.3, 0.45, 1.0 });
+        if imgui.Button('< Back', { 0, 24 }) then
+            state.craftItemId  = 0;
+            state.craftRecipes = {};
+            state.craftLoaded  = false;
+        end
+        imgui.PopStyleColor(3);
+        imgui.SameLine();
+        -- Temporarily swap the header to show synth result, then revert.
+        local synthMsg = state.synthResultMsg or '';
+        if #synthMsg > 0 and os.clock() < (state.synthResultUntil or 0) then
+            local isErr = state.synthResultIsErr;
+            local color = isErr and (COLORS.statusErr or { 1, 0.4, 0.4, 1 }) or (COLORS.statusOk or { 0.4, 1, 0.4, 1 });
+            imgui.TextColored(color, synthMsg);
+        else
+            imgui.TextColored(COLORS.header, state.craftItemName);
+        end
+
+        imgui.Spacing();
+        imgui.Separator();
+        imgui.Spacing();
+
+        imgui.BeginChild('##craft_scroll', { -1, -1 }, false);
+
+        if #state.craftRecipes == 0 then
+            imgui.Spacing(); imgui.Spacing();
+            imgui.TextColored(COLORS.dimmed, 'No crafting recipes found for this item.');
+        else
+            for i, recipe in ipairs(state.craftRecipes) do
+                if i > 1 then imgui.Spacing(); imgui.Separator(); imgui.Spacing(); end
+                renderRecipe(recipe, i);
+            end
+        end
+
+        imgui.EndChild();
+        return;
+    end
+
+    -- Pending recipe request
+    if state.pendingRequest == 'crafting' then
+        imgui.TextColored(COLORS.dimmed, 'Loading recipe...');
+        return;
+    end
+
+    -- Search results list
+    imgui.BeginChild('##craft_results', { -1, -1 }, false);
+
+    local results = craftDebounce.results;
+    if #results == 0 and #buf > 0 then
+        imgui.Spacing();
+        imgui.TextColored(COLORS.dimmed, string.format('No items matching "%s"', buf));
+    else
+        for i, entry in ipairs(results) do
+            local rowId = string.format('##craft_row_%d', entry.id);
+            local isAlt = (i % 2 == 0);
+            local bg = isAlt and { 0.12, 0.10, 0.16, 0.35 } or { 0.12, 0.10, 0.16, 0.20 };
+
+            imgui.PushStyleColor(ImGuiCol_ChildBg, bg);
+            imgui.BeginChild(rowId, { -1, 26 }, false);
+
+            imgui.SetCursorPos({ 4, 1 });
+            if not renderIcon(entry.id, 24) then imgui.Dummy({ 24, 24 }); end
+            imgui.SameLine(32);
+
+            imgui.SetCursorPosY(0);
+            if imgui.Selectable(string.format('##csel_%d', entry.id), false,
+                ImGuiSelectableFlags_SpanAllColumns, { 0, 26 }) then
+                requestRecipe(entry.id);
+            end
+
+            local dl = imgui.GetWindowDrawList();
+            local wx, wy = imgui.GetWindowPos();
+            local res = getItemRes(entry.id);
+            local displayName = res and shiftjis_to_utf8(res.Name[1]) or entry.name;
+            -- Wrap gsub in extra parens to discard the 2nd return value (sub
+            -- count); passing both to AddText causes a sol arg-count mismatch.
+            dl:AddText({ wx + 32, wy + 6 }, imgui.GetColorU32(COLORS.white), ((displayName or ''):gsub('%%', '%%%%')));
+
+            if imgui.IsItemHovered() then renderTooltip({ id = entry.id, name = displayName or '', qty = 0 }); end
+
+            imgui.EndChild();
+            imgui.PopStyleColor(1);
+        end
+    end
+
+    imgui.EndChild();
+end
+
+------------------------------------------------------------
 -- Render: Main window (tab bar)
 ------------------------------------------------------------
 local function renderTab(tabId, label, iconTex)
@@ -2028,6 +2690,12 @@ local function renderWindow()
             if imgui.BeginTabItem('Squire') then
                 if state.activeTab ~= TAB_SQUIRE then onTabActivated(TAB_SQUIRE); end
                 renderSquireTab();
+                imgui.EndTabItem();
+            end
+
+            if imgui.BeginTabItem('Crafting') then
+                if state.activeTab ~= TAB_CRAFTING then state.activeTab = TAB_CRAFTING; end
+                renderCraftingTab();
                 imgui.EndTabItem();
             end
 
@@ -2161,6 +2829,20 @@ ashita.events.register('d3d_present', 'trove_render', function()
     end
 
     if ui.isOpen[1] then processSearchDebounce(); end
+
+    -- Tick the craft-recipe auto-refresh debounce (inventory changed while
+    -- viewing a recipe → re-request so ingredient counts stay live).
+    if craftRefreshDebounce.pending
+       and os.clock() - craftRefreshDebounce.at >= craftRefreshDebounce.delay then
+        craftRefreshDebounce.pending = false;
+        if state.activeTab == TAB_CRAFTING and state.craftItemId > 0 and state.craftLoaded then
+            state.craftRecipes   = {};
+            state.craftLoaded    = false;
+            state.pendingRequest = 'crafting';
+            sendGetRecipe(state.craftItemId);
+        end
+    end
+
     renderWindow();
 end);
 
