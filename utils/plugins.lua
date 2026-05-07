@@ -155,9 +155,10 @@ plugins.getMenuEntries = function()
     for _, entry in ipairs(loaded) do
         if entry.plugin.menu then
             entries[#entries + 1] = {
-                label  = entry.plugin.menu.label or entry.plugin.name,
-                action = entry.plugin.menu.action,
-                plugin = entry.plugin,
+                label     = entry.plugin.menu.label or entry.plugin.name,
+                action    = entry.plugin.menu.action,
+                separator = entry.plugin.menu.separator or false,
+                plugin    = entry.plugin,
             };
         end
     end

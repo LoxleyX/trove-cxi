@@ -28,8 +28,11 @@ local theme = nil;
 -- Load a theme by name from themes/ directory
 ui.loadTheme = function(name)
     name = name or 'default';
+    -- Clear require cache so themes can be switched at runtime
+    local modKey = 'themes/' .. name;
+    package.loaded[modKey] = nil;
     local ok, result = pcall(function()
-        return require('themes/' .. name);
+        return require(modKey);
     end);
     if ok and type(result) == 'table' then
         theme = result;
@@ -38,6 +41,21 @@ ui.loadTheme = function(name)
         print(string.format('[trove] Failed to load theme "%s": %s', name, tostring(result)));
         return false;
     end
+end
+
+-- Get the name of the currently active theme
+ui.getThemeName = function()
+    return ui._themeName or 'default';
+end
+
+-- Load and track theme name
+ui.applyTheme = function(name)
+    name = name or 'default';
+    if ui.loadTheme(name) then
+        ui._themeName = name;
+        return true;
+    end
+    return false;
 end
 
 -- Set theme directly from a table
@@ -187,7 +205,19 @@ ui.pushWindowStyle = function()
     imgui.PushStyleColor(ImGuiCol_TitleBgActive, ui.color('windowTitleBgAct'));
     imgui.PushStyleColor(ImGuiCol_Border, ui.color('windowBorder'));
     imgui.PushStyleColor(ImGuiCol_ChildBg, ui.color('childBg'));
-    return 5; -- number of colors pushed (for PopStyleColor)
+    imgui.PushStyleColor(ImGuiCol_FrameBg, ui.color('frameBg'));
+    imgui.PushStyleColor(ImGuiCol_FrameBgHovered, ui.color('frameBgHovered'));
+    imgui.PushStyleColor(ImGuiCol_ScrollbarBg, ui.color('scrollbarBg'));
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrab, ui.color('scrollbarGrab'));
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ui.color('scrollbarHover'));
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabActive, ui.color('scrollbarActive'));
+    imgui.PushStyleColor(ImGuiCol_Tab, ui.color('tab'));
+    imgui.PushStyleColor(ImGuiCol_TabHovered, ui.color('tabHovered'));
+    imgui.PushStyleColor(ImGuiCol_TabActive, ui.color('tabActive'));
+    imgui.PushStyleColor(ImGuiCol_Header, ui.color('selectHeader'));
+    imgui.PushStyleColor(ImGuiCol_HeaderHovered, ui.color('selectHovered'));
+    imgui.PushStyleColor(ImGuiCol_HeaderActive, ui.color('selectActive'));
+    return 17;
 end
 
 -- Pop window style colors

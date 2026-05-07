@@ -20,7 +20,7 @@
 
 addon.name      = 'trove';
 addon.author    = 'Loxley';
-addon.version   = '1.3.0';
+addon.version   = '1.4.0';
 addon.desc      = 'Browse Ephemeral Box, Currency, Points, and Squire in-game';
 
 require('common');
@@ -42,7 +42,7 @@ local trove_ui       = require('utils/ui');
 -- Theme (change to load a custom theme from themes/)
 ------------------------------------------------------------
 local THEME = 'default';
-trove_ui.loadTheme(THEME);
+trove_ui.applyTheme(THEME);
 
 ------------------------------------------------------------
 -- Packet protocol (0x1A4)
@@ -117,55 +117,28 @@ local CUSTOM_ORDER = {
 };
 
 ------------------------------------------------------------
--- Colors
+-- Colors (proxy to active theme — changes when theme switches)
+-- Maps old key names to theme keys where they differ.
 ------------------------------------------------------------
-local COLORS = {
-    header       = { 0.80, 0.60, 1.00, 1.00 },
-    accent       = { 0.65, 0.45, 0.90, 1.00 },
-    dimmed       = { 0.50, 0.50, 0.55, 1.00 },
-    qty          = { 0.90, 0.75, 1.00, 1.00 },
-    qtyLow       = { 1.00, 0.70, 0.40, 1.00 },
-    category     = { 0.55, 0.80, 0.55, 1.00 },
-    searchHint   = { 0.40, 0.40, 0.45, 1.00 },
-    headerBg     = { 0.18, 0.12, 0.25, 1.00 },
-    catBtnBg     = { 0.14, 0.10, 0.20, 1.00 },
-    empty        = { 0.60, 0.55, 0.70, 0.80 },
-    selected     = { 0.25, 0.18, 0.38, 0.90 },
-    btnWithdraw  = { 0.35, 0.25, 0.55, 1.00 },
-    btnHover     = { 0.45, 0.35, 0.65, 1.00 },
-    btnActive    = { 0.55, 0.40, 0.75, 1.00 },
-    btnDimmed    = { 0.20, 0.18, 0.25, 0.50 },
-    btnFeature   = { 0.30, 0.30, 0.50, 1.00 },
-    btnFeatureH  = { 0.40, 0.40, 0.60, 1.00 },
-    btnFeatureA  = { 0.50, 0.50, 0.70, 1.00 },
-    btnStore     = { 0.25, 0.45, 0.30, 1.00 },
-    btnStoreH    = { 0.30, 0.55, 0.35, 1.00 },
-    btnStoreA    = { 0.35, 0.65, 0.40, 1.00 },
-    btnBack      = { 0.25, 0.22, 0.32, 1.00 },
-    btnBackH     = { 0.35, 0.30, 0.45, 1.00 },
-    btnBackA     = { 0.45, 0.38, 0.55, 1.00 },
-    panelBg      = { 0.10, 0.08, 0.15, 0.95 },
-    desc         = { 0.70, 0.70, 0.75, 1.00 },
-    white        = { 1.00, 1.00, 1.00, 1.00 },
-    yellow       = { 1.00, 0.92, 0.60, 1.00 },
-    blue         = { 0.55, 0.75, 1.00, 1.00 },
-    green        = { 0.55, 0.90, 0.55, 1.00 },
-    rare         = { 1.00, 0.85, 0.30, 1.00 },
-    ex           = { 0.40, 0.90, 0.40, 1.00 },
-    rareBg       = { 0.40, 0.35, 0.10, 0.80 },
-    exBg         = { 0.10, 0.35, 0.15, 0.80 },
-    slotText     = { 0.80, 0.80, 0.85, 1.00 },
-    jobText      = { 0.85, 0.80, 0.95, 1.00 },
-    statusErr    = { 1.00, 0.55, 0.55, 1.00 },
-    statusOk     = { 0.55, 0.90, 0.55, 1.00 },
-    breadcrumb   = { 0.70, 0.65, 0.85, 1.00 },
-    currencyName = { 0.95, 0.90, 0.70, 1.00 },
-    currencyTotal= { 1.00, 0.95, 0.75, 1.00 },
-    currencyBrk  = { 0.65, 0.65, 0.70, 1.00 },
-    pointsGroup  = { 0.55, 0.75, 1.00, 1.00 },
-    pointsLabel  = { 0.90, 0.90, 0.95, 1.00 },
-    pointsValue  = { 1.00, 0.95, 0.75, 1.00 },
+local COLOR_ALIASES = {
+    btnWithdraw = 'btnPrimary',
+    btnHover    = 'btnPrimaryHover',
+    btnActive   = 'btnPrimaryActive',
+    btnFeatureH = 'btnFeatureHover',
+    btnFeatureA = 'btnFeatureActive',
+    btnStoreH   = 'btnPositiveHover',
+    btnStoreA   = 'btnPositiveActive',
+    btnStore    = 'btnPositive',
+    btnBackH    = 'btnBackHover',
+    btnBackA    = 'btnBackActive',
 };
+
+local COLORS = setmetatable({}, {
+    __index = function(_, key)
+        local themeKey = COLOR_ALIASES[key] or key;
+        return trove_ui.color(themeKey);
+    end,
+});
 
 ------------------------------------------------------------
 -- Item flag constants
@@ -548,7 +521,19 @@ local TAB_POINTS   = 3;
 local TAB_SQUIRE   = 4;
 local TAB_CRAFTING = 5;
 
+-- Tab visibility (read/written by settings plugin)
+local tabVisibility = {
+    ebox     = true,
+    currency = true,
+    points   = true,
+    squire   = true,
+    crafting = true,
+};
+
 local state = {
+    -- Tab visibility (plugins can read/write this)
+    tabVisibility = tabVisibility,
+
     -- Player capability
     isCrystalWarrior = true,  -- assume until proven otherwise
     cwChecked        = false,
@@ -1389,8 +1374,9 @@ local function renderItemRow(item, index)
     local isAlt      = (index % 2 == 0);
     local rowId      = string.format('##row_%d_%d', item.id, index);
 
+    local base = COLORS.childBg;
     local bgColor = isSelected and COLORS.selected
-        or (isAlt and { 0.12, 0.10, 0.16, 0.35 } or { 0.12, 0.10, 0.16, 0.20 });
+        or (isAlt and { base[1], base[2], base[3], 0.35 } or { base[1], base[2], base[3], 0.20 });
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, bgColor);
     imgui.BeginChild(rowId, { -1, 28 }, false);
@@ -1540,7 +1526,7 @@ local function renderSelectionPanel()
     local panelH = isEquip and 86 or 70;
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.panelBg);
-    imgui.PushStyleColor(ImGuiCol_Border, { 0.65, 0.45, 0.90, 0.60 });
+    imgui.PushStyleColor(ImGuiCol_Border, COLORS.accent);
     imgui.BeginChild('##sel_panel', { -1, panelH }, true);
 
     imgui.SetCursorPos({ 6, 6 });
@@ -1772,6 +1758,7 @@ local function renderEboxTab()
         panelH = (r ~= nil and (r.Level > 0 or r.Jobs > 0 or r.Slots > 0)) and 90 or 74;
     end
 
+    imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
     imgui.BeginChild('##ebox_scroll', { -1, -panelH }, false);
 
     if inSummary then
@@ -1823,6 +1810,7 @@ local function renderEboxTab()
     end
 
     imgui.EndChild();
+    imgui.PopStyleColor(1); -- ebox_scroll bg
     renderSelectionPanel();
 end
 
@@ -1855,6 +1843,7 @@ local function renderCurrencyTab()
     imgui.Separator();
     imgui.Spacing();
 
+    imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
     imgui.BeginChild('##currency_scroll', { -1, -1 }, false);
 
     if #state.currency == 0 then
@@ -1882,7 +1871,8 @@ local function renderCurrencyTab()
             for i, entry in ipairs(sections[sectionName]) do
                 local rowId = string.format('##currow_%s_%d', sectionName, i);
                 local isAlt = (i % 2 == 0);
-                local bg = isAlt and { 0.12, 0.10, 0.16, 0.35 } or { 0.12, 0.10, 0.16, 0.20 };
+                local base = COLORS.childBg;
+            local bg = isAlt and { base[1], base[2], base[3], 0.35 } or { base[1], base[2], base[3], 0.20 };
 
                 imgui.PushStyleColor(ImGuiCol_ChildBg, bg);
                 imgui.BeginChild(rowId, { -1, 36 }, false);
@@ -1917,6 +1907,7 @@ local function renderCurrencyTab()
     end
 
     imgui.EndChild();
+    imgui.PopStyleColor(1); -- currency_scroll bg
 end
 
 ------------------------------------------------------------
@@ -1947,6 +1938,7 @@ local function renderPointsTab()
     imgui.Separator();
     imgui.Spacing();
 
+    imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
     imgui.BeginChild('##points_scroll', { -1, -1 }, false);
 
     if #state.points == 0 then
@@ -1972,7 +1964,8 @@ local function renderPointsTab()
             for i, entry in ipairs(groups[groupName]) do
                 local rowId = string.format('##ptrow_%s_%d', groupName, i);
                 local isAlt = (i % 2 == 0);
-                local bg = isAlt and { 0.12, 0.10, 0.16, 0.35 } or { 0.12, 0.10, 0.16, 0.20 };
+                local base = COLORS.childBg;
+            local bg = isAlt and { base[1], base[2], base[3], 0.35 } or { base[1], base[2], base[3], 0.20 };
 
                 imgui.PushStyleColor(ImGuiCol_ChildBg, bg);
                 imgui.BeginChild(rowId, { -1, 22 }, false);
@@ -1997,6 +1990,7 @@ local function renderPointsTab()
     end
 
     imgui.EndChild();
+    imgui.PopStyleColor(1); -- points_scroll bg
 end
 
 ------------------------------------------------------------
@@ -2061,6 +2055,7 @@ local function renderSquireTab()
     imgui.Separator();
     imgui.Spacing();
 
+    imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
     imgui.BeginChild('##squire_scroll', { -1, -1 }, false);
 
     if #state.squire == 0 then
@@ -2115,7 +2110,8 @@ local function renderSquireTab()
                     rowIdx = rowIdx + 1;
                     local rowId = string.format('##sqrow_%s_%d', catName, rowIdx);
                     local isAlt = (rowIdx % 2 == 0);
-                    local bg = isAlt and { 0.12, 0.10, 0.16, 0.35 } or { 0.12, 0.10, 0.16, 0.20 };
+                    local base = COLORS.childBg;
+            local bg = isAlt and { base[1], base[2], base[3], 0.35 } or { base[1], base[2], base[3], 0.20 };
 
                     imgui.PushStyleColor(ImGuiCol_ChildBg, bg);
                     imgui.BeginChild(rowId, { -1, 28 }, false);
@@ -2163,6 +2159,7 @@ local function renderSquireTab()
     end
 
     imgui.EndChild();
+    imgui.PopStyleColor(1); -- squire_scroll bg
 end
 
 ------------------------------------------------------------
@@ -2641,6 +2638,7 @@ local function renderCraftingTab()
         imgui.Separator();
         imgui.Spacing();
 
+        imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
         imgui.BeginChild('##craft_scroll', { -1, -1 }, false);
 
         if #state.craftRecipes == 0 then
@@ -2654,6 +2652,7 @@ local function renderCraftingTab()
         end
 
         imgui.EndChild();
+        imgui.PopStyleColor(1); -- craft_scroll bg
         return;
     end
 
@@ -2664,6 +2663,7 @@ local function renderCraftingTab()
     end
 
     -- Search results list
+    imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
     imgui.BeginChild('##craft_results', { -1, -1 }, false);
 
     local results = craftDebounce.results;
@@ -2674,7 +2674,8 @@ local function renderCraftingTab()
         for i, entry in ipairs(results) do
             local rowId = string.format('##craft_row_%d', entry.id);
             local isAlt = (i % 2 == 0);
-            local bg = isAlt and { 0.12, 0.10, 0.16, 0.35 } or { 0.12, 0.10, 0.16, 0.20 };
+            local base = COLORS.childBg;
+            local bg = isAlt and { base[1], base[2], base[3], 0.35 } or { base[1], base[2], base[3], 0.20 };
 
             imgui.PushStyleColor(ImGuiCol_ChildBg, bg);
             imgui.BeginChild(rowId, { -1, 26 }, false);
@@ -2705,6 +2706,7 @@ local function renderCraftingTab()
     end
 
     imgui.EndChild();
+    imgui.PopStyleColor(1); -- craft_results bg
 end
 
 ------------------------------------------------------------
@@ -2726,27 +2728,27 @@ local function renderWindow()
     imgui.SetNextWindowSize({ 380, 560 }, ImGuiCond_FirstUseEver);
     imgui.SetNextWindowSizeConstraints({ 320, 280 }, { 500, 900 });
 
-    imgui.PushStyleColor(ImGuiCol_TitleBg,         { 0.12, 0.08, 0.18, 0.95 });
-    imgui.PushStyleColor(ImGuiCol_TitleBgActive,    { 0.18, 0.12, 0.25, 0.95 });
-    imgui.PushStyleColor(ImGuiCol_WindowBg,         { 0.06, 0.05, 0.09, 0.92 });
-    imgui.PushStyleColor(ImGuiCol_Border,           { 0.30, 0.20, 0.45, 0.60 });
-    imgui.PushStyleColor(ImGuiCol_FrameBg,          { 0.14, 0.10, 0.20, 0.80 });
-    imgui.PushStyleColor(ImGuiCol_FrameBgHovered,   { 0.20, 0.15, 0.30, 0.80 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarBg,      { 0.06, 0.05, 0.09, 0.50 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrab,    { 0.30, 0.20, 0.45, 0.60 });
-    imgui.PushStyleColor(ImGuiCol_Tab,              { 0.18, 0.12, 0.25, 0.95 });
-    imgui.PushStyleColor(ImGuiCol_TabHovered,       { 0.30, 0.20, 0.45, 0.95 });
-    imgui.PushStyleColor(ImGuiCol_TabActive,        { 0.35, 0.25, 0.55, 0.95 });
-    -- Selectable / row hover colours (default would be bright red/orange)
-    imgui.PushStyleColor(ImGuiCol_Header,           { 0.30, 0.22, 0.42, 0.60 });
-    imgui.PushStyleColor(ImGuiCol_HeaderHovered,    { 0.40, 0.28, 0.55, 0.55 });
-    imgui.PushStyleColor(ImGuiCol_HeaderActive,     { 0.50, 0.35, 0.70, 0.75 });
+    imgui.PushStyleColor(ImGuiCol_TitleBg,         COLORS.windowTitleBg);
+    imgui.PushStyleColor(ImGuiCol_TitleBgActive,    COLORS.windowTitleBgAct);
+    imgui.PushStyleColor(ImGuiCol_WindowBg,         COLORS.windowBg);
+    imgui.PushStyleColor(ImGuiCol_Border,           COLORS.windowBorder);
+    imgui.PushStyleColor(ImGuiCol_FrameBg,          COLORS.frameBg);
+    imgui.PushStyleColor(ImGuiCol_FrameBgHovered,   COLORS.frameBgHovered);
+    imgui.PushStyleColor(ImGuiCol_ScrollbarBg,      COLORS.scrollbarBg);
+    imgui.PushStyleColor(ImGuiCol_ScrollbarGrab,    COLORS.scrollbarGrab);
+    imgui.PushStyleColor(ImGuiCol_Tab,              COLORS.tab);
+    imgui.PushStyleColor(ImGuiCol_TabHovered,       COLORS.tabHovered);
+    imgui.PushStyleColor(ImGuiCol_TabActive,        COLORS.tabActive);
+    -- Selectable / row hover colours
+    imgui.PushStyleColor(ImGuiCol_Header,           COLORS.selectHeader);
+    imgui.PushStyleColor(ImGuiCol_HeaderHovered,    COLORS.selectHovered);
+    imgui.PushStyleColor(ImGuiCol_HeaderActive,     COLORS.selectActive);
 
     if imgui.Begin('Trove', ui.isOpen, ImGuiWindowFlags_None) then
 
         if imgui.BeginTabBar('##trove_tabs', ImGuiTabBarFlags_None) then
-            -- E.Box tab (only for Crystal Warriors)
-            if state.isCrystalWarrior then
+            -- E.Box tab (only for Crystal Warriors + visible)
+            if state.isCrystalWarrior and tabVisibility.ebox then
                 if imgui.BeginTabItem('Box') then
                     if state.activeTab ~= TAB_EBOX then onTabActivated(TAB_EBOX); end
                     renderEboxTab();
@@ -2754,28 +2756,36 @@ local function renderWindow()
                 end
             end
 
-            if imgui.BeginTabItem('Currency') then
-                if state.activeTab ~= TAB_CURRENCY then onTabActivated(TAB_CURRENCY); end
-                renderCurrencyTab();
-                imgui.EndTabItem();
+            if tabVisibility.currency then
+                if imgui.BeginTabItem('Currency') then
+                    if state.activeTab ~= TAB_CURRENCY then onTabActivated(TAB_CURRENCY); end
+                    renderCurrencyTab();
+                    imgui.EndTabItem();
+                end
             end
 
-            if imgui.BeginTabItem('Points') then
-                if state.activeTab ~= TAB_POINTS then onTabActivated(TAB_POINTS); end
-                renderPointsTab();
-                imgui.EndTabItem();
+            if tabVisibility.points then
+                if imgui.BeginTabItem('Points') then
+                    if state.activeTab ~= TAB_POINTS then onTabActivated(TAB_POINTS); end
+                    renderPointsTab();
+                    imgui.EndTabItem();
+                end
             end
 
-            if imgui.BeginTabItem('Squire') then
-                if state.activeTab ~= TAB_SQUIRE then onTabActivated(TAB_SQUIRE); end
-                renderSquireTab();
-                imgui.EndTabItem();
+            if tabVisibility.squire then
+                if imgui.BeginTabItem('Squire') then
+                    if state.activeTab ~= TAB_SQUIRE then onTabActivated(TAB_SQUIRE); end
+                    renderSquireTab();
+                    imgui.EndTabItem();
+                end
             end
 
-            if imgui.BeginTabItem('Crafting') then
-                if state.activeTab ~= TAB_CRAFTING then state.activeTab = TAB_CRAFTING; end
-                renderCraftingTab();
-                imgui.EndTabItem();
+            if tabVisibility.crafting then
+                if imgui.BeginTabItem('Crafting') then
+                    if state.activeTab ~= TAB_CRAFTING then state.activeTab = TAB_CRAFTING; end
+                    renderCraftingTab();
+                    imgui.EndTabItem();
+                end
             end
 
             -- Plugin tabs (rendered after built-in tabs)
@@ -2799,6 +2809,7 @@ local function renderWindow()
                 if win.cwOnly and not state.isCrystalWarrior then
                     -- skip
                 else
+                    if win.separator then imgui.Separator(); end
                     if win.icon then renderIcon(win.icon, 16); imgui.SameLine(0, 6); end
                     local label = win.label or plugin.name;
                     if plugin.hasAlert and plugin.hasAlert() then label = label .. ' (!)'; end
@@ -2808,12 +2819,15 @@ local function renderWindow()
                 end
             end
 
-            -- Render plugin menu actions
+            -- Render plugin menu actions (commands that aren't window toggles)
             local menuEntries = trove_plugins.getMenuEntries();
-            if #menuEntries > 0 and #winPlugins > 0 then
+            if #menuEntries > 0 then
                 imgui.Separator();
             end
             for _, entry in ipairs(menuEntries) do
+                if entry.separator then
+                    imgui.Separator();
+                end
                 if imgui.Selectable(entry.label) then
                     entry.action(state);
                 end

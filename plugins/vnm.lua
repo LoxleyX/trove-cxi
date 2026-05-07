@@ -318,12 +318,15 @@ local CREST_ITEM_IDS = {
     Mountain = 3047, Forest = 3045, Desert = 3049, Ocean = 3046, Tundra = 3050,
 };
 
--- Colors only used for non-theme purposes (cell backgrounds, inline specials)
-local CELL_COLORS = {
-    ownedBg    = { 0.18, 0.38, 0.18, 1.0  },
-    completeBg = { 0.18, 0.28, 0.48, 1.0  },
-    cellBg     = { 0.14, 0.12, 0.20, 1.0  },
-};
+-- Cell background colors (derived from theme)
+local function getCellColors()
+    local base = ui.color('childBg');
+    return {
+        ownedBg    = { 0.18, 0.38, 0.18, 1.0  },  -- green tint (always green for "owned")
+        completeBg = { 0.18, 0.28, 0.48, 1.0  },  -- blue tint (always blue for "complete")
+        cellBg     = { base[1], base[2], base[3], 1.0 },
+    };
+end
 
 ------------------------------------------------------------
 -- Render helpers
@@ -400,9 +403,10 @@ local function renderCell(itemId, setData, tierIdx, slotKey)
     local isComplete = owned[setData.final[slotKey]] ~= nil;
 
     local bgCol;
-    if isComplete then bgCol = CELL_COLORS.completeBg;
-    elseif isOwned then bgCol = CELL_COLORS.ownedBg;
-    else bgCol = CELL_COLORS.cellBg; end
+    local cc = getCellColors();
+    if isComplete then bgCol = cc.completeBg;
+    elseif isOwned then bgCol = cc.ownedBg;
+    else bgCol = cc.cellBg; end
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, bgCol);
     local cellId = string.format('##vnm_cell_%d', itemId);

@@ -127,11 +127,14 @@ end
 local ICON_SIZE = 32;
 local CELL_PAD  = 4;
 
--- Cell background colors (not in theme — layout-specific)
-local CELL_COLORS = {
-    ownedBg = { 0.18, 0.38, 0.18, 1.0 },
-    cellBg  = { 0.14, 0.12, 0.20, 1.0 },
-};
+-- Cell background colors (derived from theme at render time)
+local function getCellColors()
+    local base = ui.color('childBg');
+    return {
+        ownedBg = { 0.18, 0.38, 0.18, 1.0 },  -- green tint (always green for "owned")
+        cellBg  = { base[1], base[2], base[3], 1.0 },
+    };
+end
 
 ------------------------------------------------------------
 -- Render
@@ -161,7 +164,8 @@ local ROW_H = ICON_SIZE + CELL_PAD + 2;
 
 local function renderKeyRow(entry, bitIndex, mask, width)
     local isOwned = checkBit(mask, bitIndex);
-    local bgCol = isOwned and CELL_COLORS.ownedBg or CELL_COLORS.cellBg;
+    local cc = getCellColors();
+    local bgCol = isOwned and cc.ownedBg or cc.cellBg;
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, bgCol);
     local cellId = string.format('##kr_%d', entry.id);
@@ -217,11 +221,6 @@ local function renderWindow()
     imgui.SetNextWindowSizeConstraints({ 480, 300 }, { 700, 900 });
 
     local winColors = ui.pushWindowStyle();
-    imgui.PushStyleColor(ImGuiCol_ScrollbarBg,          { 0.06, 0.05, 0.09, 0.50 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrab,         { 0.30, 0.20, 0.45, 0.60 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabHovered,  { 0.40, 0.30, 0.55, 0.80 });
-    imgui.PushStyleColor(ImGuiCol_ScrollbarGrabActive,   { 0.50, 0.38, 0.65, 1.00 });
-    local scrollColors = 4;
 
     if imgui.Begin(title, isOpen, ImGuiWindowFlags_NoScrollbar) then
         if not hasKeyring then
@@ -254,7 +253,6 @@ local function renderWindow()
         end
     end
     imgui.End();
-    imgui.PopStyleColor(scrollColors);
     ui.popWindowStyle(winColors);
 end
 

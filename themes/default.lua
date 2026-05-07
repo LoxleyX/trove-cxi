@@ -10,13 +10,33 @@
 
 return {
     -- Window chrome
-    windowBg         = { 0.10, 0.08, 0.15, 0.95 },
-    windowTitleBg    = { 0.14, 0.10, 0.22, 0.95 },
-    windowTitleBgAct = { 0.22, 0.16, 0.32, 0.95 },
-    windowBorder     = { 0.35, 0.25, 0.50, 0.60 },
+    windowBg         = { 0.06, 0.05, 0.09, 0.92 },
+    windowTitleBg    = { 0.12, 0.08, 0.18, 0.95 },
+    windowTitleBgAct = { 0.18, 0.12, 0.25, 0.95 },
+    windowBorder     = { 0.30, 0.20, 0.45, 0.60 },
     childBg          = { 0.14, 0.12, 0.20, 0.80 },
     tooltipBg        = { 0.08, 0.06, 0.12, 0.95 },
     panelBg          = { 0.10, 0.08, 0.15, 0.95 },
+
+    -- Frame / input
+    frameBg          = { 0.14, 0.10, 0.20, 0.80 },
+    frameBgHovered   = { 0.20, 0.15, 0.30, 0.80 },
+
+    -- Scrollbar
+    scrollbarBg      = { 0.06, 0.05, 0.09, 0.50 },
+    scrollbarGrab    = { 0.30, 0.20, 0.45, 0.60 },
+    scrollbarHover   = { 0.40, 0.30, 0.55, 0.80 },
+    scrollbarActive  = { 0.50, 0.38, 0.65, 1.00 },
+
+    -- Tabs
+    tab              = { 0.18, 0.12, 0.25, 0.95 },
+    tabHovered       = { 0.30, 0.20, 0.45, 0.95 },
+    tabActive        = { 0.35, 0.25, 0.55, 0.95 },
+
+    -- Selectable / header (list items, menu items)
+    selectHeader     = { 0.30, 0.22, 0.42, 0.60 },
+    selectHovered    = { 0.40, 0.28, 0.55, 0.55 },
+    selectActive     = { 0.50, 0.35, 0.70, 0.75 },
 
     -- Text
     header           = { 0.80, 0.60, 1.00, 1.00 },
