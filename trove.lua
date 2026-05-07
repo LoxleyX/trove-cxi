@@ -20,7 +20,7 @@
 
 addon.name      = 'trove';
 addon.author    = 'Loxley';
-addon.version   = '1.2.0';
+addon.version   = '1.3.0';
 addon.desc      = 'Browse Ephemeral Box, Currency, Points, and Squire in-game';
 
 require('common');
@@ -34,6 +34,11 @@ local d3d8dev = d3d.get_device();
 ffi.cdef[[
     HRESULT __stdcall D3DXCreateTextureFromFileA(IDirect3DDevice8* pDevice, const char* pSrcFile, IDirect3DTexture8** ppTexture);
 ]];
+
+------------------------------------------------------------
+-- Sub-panels
+------------------------------------------------------------
+local trove_vnm = require('trove_vnm');
 
 ------------------------------------------------------------
 -- Packet protocol (0x1A4)
@@ -1238,6 +1243,10 @@ local function renderIcon(itemId, size)
     end
     return false;
 end
+
+-- Inject shared functions into VNM sub-panel
+trove_vnm.renderIcon = renderIcon;
+trove_vnm.getItemRes = getItemRes;
 
 local function renderBadges(flags)
     if flags == nil or flags == 0 then return; end
@@ -2668,7 +2677,7 @@ local function renderWindow()
         if imgui.BeginTabBar('##trove_tabs', ImGuiTabBarFlags_None) then
             -- E.Box tab (only for Crystal Warriors)
             if state.isCrystalWarrior then
-                if imgui.BeginTabItem('E.Box') then
+                if imgui.BeginTabItem('Box') then
                     if state.activeTab ~= TAB_EBOX then onTabActivated(TAB_EBOX); end
                     renderEboxTab();
                     imgui.EndTabItem();
@@ -2701,9 +2710,29 @@ local function renderWindow()
 
             imgui.EndTabBar();
         end
+
+        -- Burger menu button (absolute positioned top-right, above tab content)
+        local btnLabel = trove_vnm.hasAlert() and '(!)'or '=';
+        imgui.SetCursorPos({ imgui.GetWindowWidth() - 28, 34 });
+        if imgui.SmallButton(btnLabel) then
+            imgui.OpenPopup('##trove_panels');
+        end
+        if imgui.BeginPopup('##trove_panels') then
+            renderIcon(3045, 16); -- Forest Crest icon
+            imgui.SameLine(0, 6);
+            local vnmLabel = 'VNM Armor';
+            if trove_vnm.hasAlert() then vnmLabel = 'VNM Armor (!)'; end
+            if imgui.Selectable(vnmLabel, trove_vnm.isOpen[1]) then
+                trove_vnm.isOpen[1] = not trove_vnm.isOpen[1];
+            end
+            imgui.EndPopup();
+        end
     end
     imgui.End();
     imgui.PopStyleColor(14);
+
+    -- Render sub-panel windows
+    trove_vnm.render();
 end
 
 ------------------------------------------------------------
@@ -2782,6 +2811,9 @@ ashita.events.register('command', 'trove_command', function(e)
     elseif sub == 'refresh' then
         refreshAll();
         return;
+    elseif sub == 'vnm' then
+        trove_vnm.isOpen[1] = not trove_vnm.isOpen[1];
+        return;
     elseif sub == 'dump' and args[3] ~= nil then
         -- Dump raw bytes of an item's description so we can map the custom
         -- glyph sequences FFXI uses for elemental icons, etc. Usage:
@@ -2844,6 +2876,44 @@ ashita.events.register('d3d_present', 'trove_render', function()
     end
 
     renderWindow();
+end);
+
+------------------------------------------------------------
+-- VNM chat monitoring (Populox + Active Venture Seals)
+------------------------------------------------------------
+ashita.events.register('packet_in', 'trove_vnm_chat', function(e)
+    if e.id == 0x0A or e.id == 0x0B then
+        trove_vnm.clearAlerts();
+        return;
+    end
+
+    if e.id ~= 0x17 then return; end
+
+    local chatType = struct.unpack('B', e.data_modified, 0x04 + 1);
+
+    local sender = '';
+    for i = 0x08, 0x16 do
+        local b = struct.unpack('B', e.data_modified, i + 1);
+        if b == 0 then break; end
+        sender = sender .. string.char(b);
+    end
+
+    local msg = '';
+    for i = 0x17, #e.data_modified - 1 do
+        local b = struct.unpack('B', e.data_modified, i + 1);
+        if b == 0 then break; end
+        msg = msg .. string.char(b);
+    end
+
+    if sender == 'Populox' and chatType == 0x21 and msg:find('/') then
+        trove_vnm.processPopuloxMessage(msg);
+        return;
+    end
+
+    local sealsMsg = msg:match('Active Venture Seals:%s*(.+)');
+    if sealsMsg and sealsMsg:find('/') then
+        trove_vnm.processPopuloxMessage(sealsMsg);
+    end
 end);
 
 ashita.events.register('unload', 'trove_unload', function()
