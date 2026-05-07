@@ -578,7 +578,10 @@ local state = {
     craftLoaded         = false,  -- true after END_LIST received
     craftItemId         = 0,      -- item we requested recipes for
     craftItemName       = '',
+    craftHistory        = {},     -- stack of { id, name } for back navigation / breadcrumbs
     batchWithdrawCount  = 0,      -- pending WITHDRAW ACKs for batch prepare
+    craftFlashId        = 0,      -- item ID to flash (non-craftable click feedback)
+    craftFlashUntil     = 0,      -- os.clock() when flash expires
 
     -- Active tab
     activeTab      = TAB_EBOX,
@@ -958,6 +961,13 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
             state.fetchedAt.squire    = now;
         elseif state.pendingRequest == 'crafting' then
             state.craftLoaded         = true;
+            -- No recipes found: flash the item and pop back if we navigated from an ingredient
+            if #state.craftRecipes == 0 and #state.craftHistory > 0 then
+                state.craftFlashId    = state.craftItemId;
+                state.craftFlashUntil = os.clock() + 0.4;
+                local prev = table.remove(state.craftHistory);
+                requestRecipe(prev.id, false);
+            end
         else
             state.viewTotal = readU16(e.data_modified, 0x08);
             state.viewQty   = readU32(e.data_modified, 0x0C);
@@ -2183,7 +2193,10 @@ local function searchCraftItems(query)
     return results;
 end
 
-local function requestRecipe(itemId)
+local function requestRecipe(itemId, pushHistory)
+    if pushHistory ~= false and state.craftItemId > 0 then
+        table.insert(state.craftHistory, { id = state.craftItemId, name = state.craftItemName });
+    end
     local res = getItemRes(itemId);
     state.craftItemId   = itemId;
     state.craftItemName = (res ~= nil and res.Name[1] ~= nil) and shiftjis_to_utf8(res.Name[1]) or tostring(itemId);
@@ -2370,22 +2383,35 @@ local function renderRecipe(recipe, index)
 
     imgui.Spacing();
 
-    -- Ingredients
-    for _, ing in ipairs(recipe.ingredients) do
+    -- Ingredients (clickable: navigates to recipe if craftable, flashes if not)
+    for ingIdx, ing in ipairs(recipe.ingredients) do
         local color = ingredientColor(ing.inv, ing.ebox, ing.need);
+        -- Flash feedback for non-craftable clicks
+        local isFlashing = state.craftFlashId == ing.id and os.clock() < state.craftFlashUntil;
+        if isFlashing then color = { 1.0, 1.0, 1.0, 1.0 }; end
+
         if not renderIcon(ing.id, 20) then imgui.Dummy({ 20, 20 }); end
         imgui.SameLine(0, 4);
         local ingRes = getItemRes(ing.id);
         local ingName = ingRes and shiftjis_to_utf8(ingRes.Name[1]) or tostring(ing.id);
         local label = ing.need > 1 and string.format('%s x%d', ingName, ing.need) or ingName;
-        imgui.TextColored(color, label);
+        imgui.PushStyleColor(ImGuiCol_Text, color);
+        local selId = string.format('%s##ing_%d_%d', label, index, ingIdx);
+        if imgui.Selectable(selId, false, ImGuiSelectableFlags_None, { 0, 0 }) then
+            requestRecipe(ing.id);
+        end
+        imgui.PopStyleColor();
         imgui.SameLine(0, 8);
         imgui.TextColored(COLORS.dimmed, string.format('(%d/%d)', ing.inv + ing.ebox, ing.need));
         if imgui.IsItemHovered() then
             imgui.BeginTooltip();
+            renderIcon(ing.id, 32);
+            imgui.SameLine(0, 6);
+            imgui.BeginGroup();
             imgui.TextColored(COLORS.header, ingName);
             imgui.TextColored(COLORS.dimmed, string.format('Need: %d', ing.need));
             imgui.TextColored(COLORS.dimmed, string.format('Inventory: %d  |  E.Box: %d', ing.inv, ing.ebox));
+            imgui.EndGroup();
             imgui.EndTooltip();
         end
     end
@@ -2547,17 +2573,52 @@ local function renderCraftingTab()
     -- If we have a loaded recipe, show it
     if state.craftLoaded and state.craftItemId > 0 then
         -- Back button
+        if #state.craftHistory > 0 then
+            imgui.PushStyleColor(ImGuiCol_Button, COLORS.btnBack or { 0.3, 0.25, 0.4, 0.8 });
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.btnBackH or { 0.4, 0.35, 0.5, 0.9 });
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.btnBackA or { 0.35, 0.3, 0.45, 1.0 });
+            if imgui.Button('<', { 24, 24 }) then
+                local prev = table.remove(state.craftHistory);
+                requestRecipe(prev.id, false);
+            end
+            imgui.PopStyleColor(3);
+            imgui.SameLine(0, 4);
+        end
+
+        -- Close button (return to search results)
         imgui.PushStyleColor(ImGuiCol_Button, COLORS.btnBack or { 0.3, 0.25, 0.4, 0.8 });
         imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.btnBackH or { 0.4, 0.35, 0.5, 0.9 });
         imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.btnBackA or { 0.35, 0.3, 0.45, 1.0 });
-        if imgui.Button('< Back', { 0, 24 }) then
+        if imgui.Button('x', { 24, 24 }) then
             state.craftItemId  = 0;
             state.craftRecipes = {};
             state.craftLoaded  = false;
+            state.craftHistory = {};
         end
         imgui.PopStyleColor(3);
-        imgui.SameLine();
-        -- Temporarily swap the header to show synth result, then revert.
+        imgui.SameLine(0, 6);
+
+        -- Breadcrumbs: History1 > History2 > Current
+        for bi, crumb in ipairs(state.craftHistory) do
+            imgui.PushStyleColor(ImGuiCol_Button,        { 0, 0, 0, 0 });
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered,  { 0.30, 0.22, 0.42, 0.60 });
+            imgui.PushStyleColor(ImGuiCol_ButtonActive,   { 0.40, 0.30, 0.55, 0.80 });
+            imgui.PushStyleColor(ImGuiCol_Text, COLORS.dimmed);
+            local crumbId = string.format('%s##crumb_%d', crumb.name, bi);
+            if imgui.SmallButton(crumbId) then
+                local targetId = crumb.id;
+                for _ = bi, #state.craftHistory do
+                    table.remove(state.craftHistory);
+                end
+                requestRecipe(targetId, false);
+            end
+            imgui.PopStyleColor(4);
+            imgui.SameLine(0, 2);
+            imgui.TextColored(COLORS.dimmed, '>');
+            imgui.SameLine(0, 2);
+        end
+
+        -- Current item name (or synth result message)
         local synthMsg = state.synthResultMsg or '';
         if #synthMsg > 0 and os.clock() < (state.synthResultUntil or 0) then
             local isErr = state.synthResultIsErr;
