@@ -232,9 +232,13 @@ local function scanInventory()
         for _, slot in ipairs(SLOTS) do watchIds[set.final[slot]] = true; end
     end
 
+    if inventory == nil then return; end
     for _, container in ipairs(CONTAINERS) do
-        for j = 0, inventory:GetContainerCountMax(container.id) do
-            local item = inventory:GetContainerItem(container.id, j);
+        local max = inventory:GetContainerCountMax(container.id);
+        if max == nil or max == 0 then break; end
+        for j = 0, max do
+            local ok, item = pcall(function() return inventory:GetContainerItem(container.id, j); end);
+            if not ok or item == nil then break; end
             if item.Id ~= 0 and item.Id ~= 65535 then
                 if watchIds[item.Id] then newOwned[item.Id] = container.name; end
                 if item.Id == SLIP_ID then
