@@ -182,8 +182,8 @@ local function renderWindow()
         summaryLoaded = 'pending';
     end
 
-    imgui.SetNextWindowSize({ 280, 400 }, ImGuiCond_FirstUseEver);
-    imgui.SetNextWindowSizeConstraints({ 250, 300 }, { 400, 700 });
+    imgui.SetNextWindowSize({ 420, 450 }, ImGuiCond_FirstUseEver);
+    imgui.SetNextWindowSizeConstraints({ 350, 300 }, { 600, 800 });
 
     local winColors = ui.pushWindowStyle();
 

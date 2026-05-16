@@ -377,6 +377,12 @@ ui.itemRow = function(renderIconFn, getItemResFn, item, index, tooltipFn)
     end
     imgui.SameLine(34);
 
+    -- Invisible selectable for hover/tooltip
+    imgui.SetCursorPosY(0);
+    imgui.Selectable(string.format('##isel_%d_%d', itemId, index), false,
+        ImGuiSelectableFlags_SpanAllColumns, { 0, 28 });
+    local hovered = imgui.IsItemHovered();
+
     -- Name + badges drawn via drawlist
     local dl  = imgui.GetWindowDrawList();
     local wx, wy = imgui.GetWindowPos();
@@ -394,18 +400,22 @@ ui.itemRow = function(renderIconFn, getItemResFn, item, index, tooltipFn)
     end
 
     if isEx then
+        local exBg = ui.color('exBg') or { 0.10, 0.35, 0.15, 0.80 };
+        local exFg = ui.color('ex') or { 0.40, 0.90, 0.40, 1.0 };
         local tw = imgui.CalcTextSize('Ex') + 8;
         rightX = rightX - tw;
-        dl:AddRectFilled({ rightX, wy + 6 }, { rightX + tw, wy + 22 }, imgui.GetColorU32({ 0.15, 0.30, 0.50, 1.0 }));
-        dl:AddText({ rightX + 4, wy + 7 }, imgui.GetColorU32({ 0.5, 0.7, 1.0, 1.0 }), 'Ex');
+        dl:AddRectFilled({ rightX, wy + 6 }, { rightX + tw, wy + 22 }, imgui.GetColorU32(exBg));
+        dl:AddText({ rightX + 4, wy + 7 }, imgui.GetColorU32(exFg), 'Ex');
         rightX = rightX - 4;
     end
 
     if isRare then
+        local rareBg = ui.color('rareBg') or { 0.40, 0.35, 0.10, 0.80 };
+        local rareFg = ui.color('rare') or { 1.0, 0.85, 0.30, 1.0 };
         local tw = imgui.CalcTextSize('R') + 8;
         rightX = rightX - tw;
-        dl:AddRectFilled({ rightX, wy + 6 }, { rightX + tw, wy + 22 }, imgui.GetColorU32({ 0.45, 0.35, 0.15, 1.0 }));
-        dl:AddText({ rightX + 4, wy + 7 }, imgui.GetColorU32({ 1.0, 0.85, 0.4, 1.0 }), 'R');
+        dl:AddRectFilled({ rightX, wy + 6 }, { rightX + tw, wy + 22 }, imgui.GetColorU32(rareBg));
+        dl:AddText({ rightX + 4, wy + 7 }, imgui.GetColorU32(rareFg), 'R');
         rightX = rightX - 4;
     end
 
@@ -423,8 +433,7 @@ ui.itemRow = function(renderIconFn, getItemResFn, item, index, tooltipFn)
 
     imgui.EndChild();
 
-    -- Tooltip on child hover (must be after EndChild)
-    if tooltipFn and imgui.IsItemHovered() then
+    if tooltipFn and hovered then
         tooltipFn({ id = itemId, name = name, qty = qty });
     end
 

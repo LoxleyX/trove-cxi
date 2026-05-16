@@ -1335,6 +1335,9 @@ local function renderIcon(itemId, size)
     return false;
 end
 
+-- Forward declaration (defined below, needed by initPlugins)
+local renderTooltip;
+
 -- Inject shared functions into plugins after they load
 local function initPlugins()
     trove_plugins.initAll(renderIcon, getItemRes, renderTooltip);
@@ -1435,7 +1438,7 @@ local function renderItemDetail(res, storedQty)
     end
 end
 
-local function renderTooltip(item)
+renderTooltip = function(item)
     imgui.SetNextWindowSize({ 400, -1 }, ImGuiCond_Always);
     imgui.BeginTooltip();
     imgui.PushTextWrapPos(380);
