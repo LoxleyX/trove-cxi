@@ -50,15 +50,17 @@ trove_ui.applyTheme(THEME);
 local PACKET_ID = 0x1A4;
 
 local C2S = {
-    WITHDRAW        = 2,
-    WITHDRAW_PROMPT = 3,
-    GET_SUMMARY     = 4,
-    GET_CATEGORY    = 5,
-    SEARCH          = 6,
-    GET_CURRENCY    = 7,
-    GET_POINTS      = 8,
-    GET_SQUIRE      = 9,
-    GET_RECIPE      = 10,
+    WITHDRAW          = 2,
+    WITHDRAW_PROMPT   = 3,
+    GET_SUMMARY       = 4,
+    GET_CATEGORY      = 5,
+    SEARCH            = 6,
+    GET_CURRENCY      = 7,
+    GET_POINTS        = 8,
+    GET_SQUIRE        = 9,
+    GET_RECIPE        = 10,
+    GET_TAB_SUMMARY   = 13,
+    GET_TAB_CATEGORY  = 14,
 };
 
 local S2C = {
@@ -72,6 +74,12 @@ local S2C = {
     POINTS_ENTRY   = 7,
     SQUIRE_ENTRY   = 8,
     RECIPE         = 11,
+    TAB_SUMMARY    = 12,
+};
+
+-- Tab source IDs (matches C++ TAB_SOURCE_* constants)
+local TAB_SOURCE = {
+    SQUIRE = 0,
 };
 
 -- LOCKED reason codes (server → client)
@@ -451,10 +459,25 @@ local function sendAction(action)
     AshitaCore:GetPacketManager():AddOutgoingPacket(PACKET_ID, p);
 end
 
-local function sendGetSummary()    sendAction(C2S.GET_SUMMARY);    end
-local function sendGetCurrency()   sendAction(C2S.GET_CURRENCY);   end
-local function sendGetPoints()     sendAction(C2S.GET_POINTS);     end
-local function sendGetSquire()     sendAction(C2S.GET_SQUIRE);     end
+local function sendGetSummary()        sendAction(C2S.GET_SUMMARY);         end
+local function sendGetCurrency()       sendAction(C2S.GET_CURRENCY);        end
+local function sendGetPoints()         sendAction(C2S.GET_POINTS);          end
+local function sendGetSquire()         sendAction(C2S.GET_SQUIRE);          end
+local function sendGetTabSummary(source)
+    local p = makePacket();
+    p[5] = C2S.GET_TAB_SUMMARY;
+    p[7] = source;
+    AshitaCore:GetPacketManager():AddOutgoingPacket(PACKET_ID, p);
+end
+
+local function sendGetTabCategory(source, categoryName)
+    local p = makePacket();
+    p[5] = C2S.GET_TAB_CATEGORY;
+    p[7] = source;
+    local bytes = { string.byte(categoryName, 1, 20) };
+    for i = 1, math.min(#bytes, 20) do p[8 + i] = bytes[i]; end
+    AshitaCore:GetPacketManager():AddOutgoingPacket(PACKET_ID, p);
+end
 
 local function sendGetRecipe(itemId)
     local p = makePacket();
@@ -572,8 +595,11 @@ local state = {
     pointsLoaded  = false,
 
     -- Squire state
-    squire        = {},
-    squireLoaded  = false,
+    squire              = {},
+    squireLoaded        = false,
+    squireSummary       = {},
+    squireSummaryLoaded = false,
+    squireCategory      = nil,
 
     -- Crafting state
     craftRecipes        = {},     -- array of parsed recipe tables from server
@@ -738,8 +764,13 @@ local function refreshCurrentView()
         state.pendingRequest = 'points';
         sendGetPoints();
     elseif state.activeTab == TAB_SQUIRE then
-        state.pendingRequest = 'squire';
-        sendGetSquire();
+        if state.squireCategory then
+            state.pendingRequest = 'squire';
+            sendGetTabCategory(TAB_SOURCE.SQUIRE, state.squireCategory);
+        else
+            state.pendingRequest = 'squire_summary';
+            sendGetTabSummary(TAB_SOURCE.SQUIRE);
+        end
     end
 end
 
@@ -815,13 +846,18 @@ local function ensureCurrentView()
         state.points         = {};
         sendGetPoints();
     elseif state.activeTab == TAB_SQUIRE then
-        if cacheFresh(state.fetchedAt.squire, TTL.squire) then
-            state.pendingRequest = nil;
-            return;
+        if state.squireCategory then
+            state.pendingRequest = 'squire';
+            state.squire         = {};
+            sendGetTabCategory(TAB_SOURCE.SQUIRE, state.squireCategory);
+        else
+            if cacheFresh(state.fetchedAt.squire, TTL.squire) then
+                state.pendingRequest = nil;
+                return;
+            end
+            state.pendingRequest = 'squire_summary';
+            sendGetTabSummary(TAB_SOURCE.SQUIRE);
         end
-        state.pendingRequest = 'squire';
-        state.squire         = {};
-        sendGetSquire();
     end
 end
 
@@ -1062,6 +1098,26 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
         local value = readI32(e.data_modified, 0x34);
 
         table.insert(state.points, { group = group, label = label, value = value });
+        return;
+    end
+
+    if action == S2C.TAB_SUMMARY then
+        local entryCount = struct.unpack('B', e.data_modified, 0x05 + 1);
+        local source     = struct.unpack('B', e.data_modified, 0x06 + 1);
+        local entries = {};
+        local offset = 0x08;
+        for i = 1, entryCount do
+            local category = readString(e.data_modified, offset, 20);
+            local count    = readU16(e.data_modified, offset + 20);
+            table.insert(entries, { category = category, count = count });
+            offset = offset + 22;
+        end
+        -- Route to the correct state based on source
+        if source == TAB_SOURCE.SQUIRE then
+            state.squireSummary = entries;
+            state.squireSummaryLoaded = true;
+        end
+        state.pendingRequest = nil;
         return;
     end
 
@@ -2033,9 +2089,69 @@ local function squireCategoryRank(name)
 end
 
 local function renderSquireTab()
-    -- Group entries by category -> subtype
-    local byCat  = {};       -- categoryName -> { subtypes = { subName -> items }, order = {} }
-    local catOrder = {};     -- preserves first-seen order for unknown cats
+    -- Category list view (summary)
+    if not state.squireCategory then
+        if not state.squireSummaryLoaded then
+            if state.pendingRequest == 'squire_summary' then
+                imgui.TextColored(COLORS.dimmed, 'Loading...');
+            else
+                state.pendingRequest = 'squire_summary';
+                sendGetTabSummary(TAB_SOURCE.SQUIRE);
+            end
+            return;
+        end
+
+        if #state.squireSummary == 0 then
+            imgui.TextColored(COLORS.empty, 'Nothing stored with the Squire.');
+            return;
+        end
+
+        -- Refresh button
+        imgui.PushStyleColor(ImGuiCol_Button, COLORS.btnFeature);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.btnFeatureH);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.btnFeatureA);
+        if imgui.Button('Refresh', { 70, 22 }) then
+            state.squireSummaryLoaded = false;
+            state.pendingRequest = 'squire_summary';
+            sendGetTabSummary(TAB_SOURCE.SQUIRE);
+        end
+        imgui.PopStyleColor(3);
+        imgui.Separator();
+        imgui.Spacing();
+
+        for _, entry in ipairs(state.squireSummary) do
+            local label = string.format('%s (%d)', entry.category, entry.count);
+            if imgui.Selectable(label, false) then
+                state.squireCategory = entry.category;
+                state.squire = {};
+                state.squireLoaded = false;
+                state.pendingRequest = 'squire';
+                sendGetTabCategory(TAB_SOURCE.SQUIRE, entry.category);
+            end
+        end
+        return;
+    end
+
+    -- Item list view (within a category)
+    -- Back button
+    imgui.PushStyleColor(ImGuiCol_Button, COLORS.btnFeature);
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.btnFeatureH);
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.btnFeatureA);
+    if imgui.Button('Back', { 50, 22 }) then
+        state.squireCategory = nil;
+        state.squire = {};
+        state.squireLoaded = false;
+        return;
+    end
+    imgui.PopStyleColor(3);
+    imgui.SameLine();
+    imgui.TextColored(COLORS.dimmed, string.format('%s (%d items)', state.squireCategory, #state.squire));
+    imgui.Separator();
+    imgui.Spacing();
+
+    -- Group entries by subtype
+    local byCat  = {};
+    local catOrder = {};
 
     for _, entry in ipairs(state.squire) do
         if byCat[entry.category] == nil then
@@ -2050,24 +2166,7 @@ local function renderSquireTab()
         table.insert(cat.subtypes[entry.subtype], entry);
     end
 
-    -- Sort categories using the predefined order
     table.sort(catOrder, function(a, b) return squireCategoryRank(a) < squireCategoryRank(b); end);
-
-    -- Refresh button
-    imgui.PushStyleColor(ImGuiCol_Button, COLORS.btnFeature);
-    imgui.PushStyleColor(ImGuiCol_ButtonHovered, COLORS.btnFeatureH);
-    imgui.PushStyleColor(ImGuiCol_ButtonActive, COLORS.btnFeatureA);
-    if imgui.Button('Refresh', { 70, 22 }) then
-        state.squire = {};
-        state.pendingRequest = 'squire';
-        sendGetSquire();
-    end
-    imgui.PopStyleColor(3);
-
-    imgui.SameLine();
-    imgui.TextColored(COLORS.dimmed, string.format('%d items stored', #state.squire));
-    imgui.Separator();
-    imgui.Spacing();
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
     imgui.BeginChild('##squire_scroll', { -1, -1 }, false);
