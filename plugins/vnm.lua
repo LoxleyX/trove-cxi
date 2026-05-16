@@ -125,42 +125,66 @@ local ZONE_DROPS = {
     { zone = 'Cape Teriggan',             tier = 3, slot = 'body',  crest = 'Desert'   },
     { zone = 'Ro\'Maeve',                 tier = 3, slot = 'hands', crest = 'Forest'   },
     { zone = 'Bibiki Bay',                tier = 3, slot = 'body',  crest = 'Ocean'    },
-    { zone = 'East Ronfaure [S]',         tier = 1, slot = 'head',  crest = 'Forest'   },
+    { zone = 'East Ronfaure [S]',         tier = 1, slot = 'head',  crest = 'Forest',   loc = '(G-9)' },
     { zone = 'West Sarutabaruta [S]',     tier = 1, slot = 'hands', crest = 'Forest'   },
     { zone = 'North Gustaberg [S]',       tier = 1, slot = 'feet',  crest = 'Mountain' },
-    { zone = 'Wajaom Woodlands',          tier = 1, slot = 'body',  crest = 'Tundra'   },
-    { zone = 'Bhaflau Thickets',          tier = 1, slot = 'hands', crest = 'Desert'   },
-    { zone = 'Alzadaal Undersea Ruins',   tier = 1, slot = 'legs',  crest = 'Ocean'    },
+    { zone = 'Wajaom Woodlands',          tier = 1, slot = 'body',  crest = 'Tundra',  loc = '(I-6)' },
+    { zone = 'Bhaflau Thickets',          tier = 1, slot = 'hands', crest = 'Desert',  loc = '(H-9)' },
+    { zone = 'Alzadaal Undersea Ruins',   tier = 1, slot = 'legs',  crest = 'Ocean',   loc = 'Map 3 (I-8)' },
     { zone = 'Grauberg [S]',              tier = 2, slot = 'head',  crest = 'Mountain' },
     { zone = 'Vunkerl Inlet [S]',         tier = 2, slot = 'hands', crest = 'Ocean'    },
     { zone = 'Fort Karugo-Narugo [S]',    tier = 2, slot = 'feet',  crest = 'Forest'   },
-    { zone = 'East Ronfaure [S]',         tier = 2, slot = 'body',  crest = 'Forest'   },
+    { zone = 'East Ronfaure [S]',         tier = 2, slot = 'body',  crest = 'Forest',  loc = '(H-9)' },
     { zone = 'Garlaige Citadel [S]',      tier = 3, slot = 'legs',  crest = 'Forest'   },
     { zone = 'Rolanberry Fields [S]',     tier = 3, slot = 'hands', crest = 'Ocean'    },
-    { zone = 'Bhaflau Thickets',          tier = 3, slot = 'feet',  crest = 'Desert'   },
-    { zone = 'Wajaom Woodlands',          tier = 3, slot = 'body',  crest = 'Tundra'   },
+    { zone = 'Bhaflau Thickets',          tier = 3, slot = 'feet',  crest = 'Desert',  loc = '(H-7)' },
+    { zone = 'Wajaom Woodlands',          tier = 3, slot = 'body',  crest = 'Tundra',  loc = '(I-8)' },
     { zone = 'Aydeewa Subterrane',        tier = 3, slot = 'legs',  crest = 'Mountain' },
     { zone = 'Caedarva Mire',             tier = 3, slot = 'legs',  crest = 'Tundra'   },
     { zone = 'Mount Zhayolm',             tier = 3, slot = 'feet',  crest = 'Desert'   },
-    { zone = 'Alzadaal Undersea Ruins',   tier = 3, slot = 'head',  crest = 'Ocean'    },
+    { zone = 'Alzadaal Undersea Ruins',   tier = 3, slot = 'head',  crest = 'Ocean',   loc = 'Map 2 (I-8)' },
 };
 
 local CREST_ZONES = {};
 local ZONE_LOOKUP = {};
+local ZONE_LOC_LOOKUP = {};  -- key: "zone|loc" for zones with duplicate entries
+local ZONE_HAS_LOC = {};     -- zones that need loc disambiguation
 local ITEM_ZONES  = {};
 
 local function buildLookups()
     CREST_ZONES = {};
     ZONE_LOOKUP = {};
+    ZONE_LOC_LOOKUP = {};
+    ZONE_HAS_LOC = {};
     ITEM_ZONES  = {};
+
+    -- First pass: identify zones that appear more than once
+    local zoneCounts = {};
+    for _, drop in ipairs(ZONE_DROPS) do
+        local key = string.lower(drop.zone);
+        zoneCounts[key] = (zoneCounts[key] or 0) + 1;
+    end
+
     for _, drop in ipairs(ZONE_DROPS) do
         if not CREST_ZONES[drop.crest] then CREST_ZONES[drop.crest] = {}; end
         local found = false;
         for _, z in ipairs(CREST_ZONES[drop.crest]) do if z == drop.zone then found = true; break; end end
         if not found then table.insert(CREST_ZONES[drop.crest], drop.zone); end
+
         local key = string.lower(drop.zone);
-        if not ZONE_LOOKUP[key] then ZONE_LOOKUP[key] = {}; end
-        table.insert(ZONE_LOOKUP[key], { tier = drop.tier, slot = drop.slot, crest = drop.crest });
+        local entry = { tier = drop.tier, slot = drop.slot, crest = drop.crest };
+
+        -- For duplicate zones with loc, use loc-specific lookup
+        if zoneCounts[key] > 1 and drop.loc then
+            ZONE_HAS_LOC[key] = true;
+            local locKey = key .. '|' .. string.lower(drop.loc);
+            if not ZONE_LOC_LOOKUP[locKey] then ZONE_LOC_LOOKUP[locKey] = {}; end
+            table.insert(ZONE_LOC_LOOKUP[locKey], entry);
+        else
+            if not ZONE_LOOKUP[key] then ZONE_LOOKUP[key] = {}; end
+            table.insert(ZONE_LOOKUP[key], entry);
+        end
+
         for _, set in ipairs(SETS) do
             local itemId = set.tiers[drop.tier][drop.slot];
             if itemId then
@@ -283,14 +307,26 @@ local function processPopuloxMessage(msg)
     alertTime = os.clock();
     for zonePart in msg:gmatch('([^/]+)') do
         local trimmed = zonePart:gsub('^%s+',''):gsub('%s+$','');
-        local zoneName = trimmed:gsub('%s*%([A-Z]%-[0-9]+%)','');
+        local locStr = trimmed:match('(%(?[Mm]ap%s*%d+%s*%)?%s*%([A-Z]%-[0-9]+%))') or trimmed:match('(%([A-Z]%-[0-9]+%))');
+        local zoneName = trimmed:gsub('%s*%(?[Mm]ap%s*%d+%s*%)?%s*%([A-Z]%-[0-9]+%)',''):gsub('%s*%([A-Z]%-[0-9]+%)','');
         if #zoneName > 3 then
             local key = string.lower(zoneName);
-            if not alertZones[key] then
-                alertZones[key] = true;
+            if not alertZones[trimmed] then
+                alertZones[trimmed] = true;
                 table.insert(alertDisplay, trimmed);
             end
-            local drops = ZONE_LOOKUP[key];
+
+            -- Use loc-specific lookup for zones with duplicates
+            local drops = nil;
+            if ZONE_HAS_LOC[key] and locStr then
+                local locKey = key .. '|' .. string.lower(locStr);
+                drops = ZONE_LOC_LOOKUP[locKey];
+            end
+            -- Fallback to general lookup
+            if not drops then
+                drops = ZONE_LOOKUP[key];
+            end
+
             if drops then
                 for _, drop in ipairs(drops) do
                     for _, set in ipairs(SETS) do
