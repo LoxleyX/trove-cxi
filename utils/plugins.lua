@@ -57,6 +57,7 @@ end
 ------------------------------------------------------------
 plugins.load = function()
     local files = discoverPlugins();
+    local names = {};
     for _, filename in ipairs(files) do
         local name = filename:gsub('%.lua$', '');
         local ok, result = pcall(function()
@@ -65,18 +66,22 @@ plugins.load = function()
 
         if ok and type(result) == 'table' and result.name then
             loaded[#loaded + 1] = { plugin = result, file = filename };
+            names[#names + 1] = result.name;
             if result.onLoad then
                 local lok, lerr = pcall(result.onLoad);
                 if not lok then
                     print(string.format('[trove] Plugin %s onLoad error: %s', result.name, tostring(lerr)));
                 end
             end
-            print(string.format('[trove] Plugin loaded: %s', result.name));
         elseif ok then
             print(string.format('[trove] Plugin %s: invalid (must return table with .name)', filename));
         else
             print(string.format('[trove] Plugin %s failed to load: %s', filename, tostring(result)));
         end
+    end
+
+    if #names > 0 then
+        print(string.format('[trove] Plugins: %s', table.concat(names, ', ')));
     end
 end
 

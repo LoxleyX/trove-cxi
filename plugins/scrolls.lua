@@ -177,16 +177,16 @@ local function renderScrollList()
                 or  (ui.color('dimmed') or { 0.4, 0.4, 0.4, 1.0 });
             dl:AddText({ wx + 30, wy + 6 }, imgui.GetColorU32(nameColor), spellName);
 
-            -- Checkmark for owned
+            -- Owned indicator
             if has then
                 local ww = imgui.GetWindowWidth();
-                dl:AddText({ wx + ww - 20, wy + 6 }, imgui.GetColorU32(ui.color('green') or { 0.4, 0.9, 0.4, 1.0 }), '\xE2\x9C\x93');
+                dl:AddText({ wx + ww - 16, wy + 6 }, imgui.GetColorU32(ui.color('green') or { 0.4, 0.9, 0.4, 1.0 }), '*');
             end
 
             imgui.EndChild();
 
             if hovered and renderTooltip then
-                renderTooltip({ id = itemId, name = spellName, qty = 0 });
+                renderTooltip({ id = itemId, name = spellName });
             end
 
             imgui.PopStyleColor(1);
