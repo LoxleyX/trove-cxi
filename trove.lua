@@ -72,7 +72,7 @@ local S2C = {
     SUMMARY        = 5,
     CURRENCY_ENTRY = 6,
     POINTS_ENTRY   = 7,
-    SQUIRE_ENTRY   = 8,
+    TAB_ENTRY      = 8,
     RECIPE         = 11,
     TAB_SUMMARY    = 12,
 };
@@ -997,15 +997,26 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
 
     if action == S2C.END_LIST then
         local now = os.clock();
+        local source = struct.unpack('B', e.data_modified, 0x05 + 1);
+
+        -- Tab protocol responses (source > 0 handled by plugins)
+        if source == TAB_SOURCE.SQUIRE then
+            state.squireLoaded        = true;
+            state.fetchedAt.squire    = now;
+            state.pendingRequest      = nil;
+            return;
+        elseif source > 0 then
+            -- Other tab sources handled by plugins
+            state.pendingRequest = nil;
+            return;
+        end
+
         if state.pendingRequest == 'currency' then
             state.currencyLoaded      = true;
             state.fetchedAt.currency  = now;
         elseif state.pendingRequest == 'points' then
             state.pointsLoaded        = true;
             state.fetchedAt.points    = now;
-        elseif state.pendingRequest == 'squire' then
-            state.squireLoaded        = true;
-            state.fetchedAt.squire    = now;
         elseif state.pendingRequest == 'crafting' then
             state.craftLoaded         = true;
             -- No recipes found: flash the item and pop back if we navigated from an ingredient
@@ -1121,20 +1132,23 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
         return;
     end
 
-    if action == S2C.SQUIRE_ENTRY then
-        local iconId   = readU16(e.data_modified, 0x06);
-        local category = readString(e.data_modified, 0x08, 19);
-        local subtype  = readString(e.data_modified, 0x1C, 23);
-        local name     = readString(e.data_modified, 0x34, 23);
-        local tier     = readString(e.data_modified, 0x4C, 7);
+    if action == S2C.TAB_ENTRY then
+        local source = struct.unpack('B', e.data_modified, 0x05 + 1);
+        if source == TAB_SOURCE.SQUIRE then
+            local iconId   = readU16(e.data_modified, 0x06);
+            local category = readString(e.data_modified, 0x08, 19);
+            local subtype  = readString(e.data_modified, 0x1C, 23);
+            local name     = readString(e.data_modified, 0x34, 23);
+            local tier     = readString(e.data_modified, 0x4C, 7);
 
-        table.insert(state.squire, {
-            iconId   = iconId,
-            category = category,
-            subtype  = subtype,
-            name     = name,
-            tier     = tier,
-        });
+            table.insert(state.squire, {
+                iconId   = iconId,
+                category = category,
+                subtype  = subtype,
+                name     = name,
+                tier     = tier,
+            });
+        end
         return;
     end
 
@@ -1323,7 +1337,7 @@ end
 
 -- Inject shared functions into plugins after they load
 local function initPlugins()
-    trove_plugins.initAll(renderIcon, getItemRes);
+    trove_plugins.initAll(renderIcon, getItemRes, renderTooltip);
 end
 
 local function renderBadges(flags)
@@ -2119,6 +2133,7 @@ local function renderSquireTab()
         imgui.Separator();
         imgui.Spacing();
 
+        imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
         imgui.BeginChild('##squire_summary', { -1, -1 }, false);
         for i, entry in ipairs(state.squireSummary) do
             local subtitle = string.format('%d item%s stored', entry.count, entry.count ~= 1 and 's' or '');
@@ -2132,6 +2147,7 @@ local function renderSquireTab()
             imgui.Spacing();
         end
         imgui.EndChild();
+        imgui.PopStyleColor(1);
         return;
     end
 

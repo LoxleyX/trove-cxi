@@ -15,6 +15,7 @@ local imgui = require('imgui');
 local renderIcon = nil;
 local getItemRes = nil;
 local ui = nil;
+local renderTooltip = nil;
 
 ------------------------------------------------------------
 -- State
@@ -30,12 +31,11 @@ local searchBuf       = { '' };
 ------------------------------------------------------------
 -- Protocol (matches trove.lua constants)
 ------------------------------------------------------------
-local PACKET_ID       = 0x1A4;
+local PACKET_ID        = 0x1A4;
 local C2S_TAB_SUMMARY  = 13;
 local C2S_TAB_CATEGORY = 14;
 local S2C_TAB_SUMMARY  = 12;
-local S2C_CLEAR        = 0;
-local S2C_SQUIRE_ENTRY = 8;
+local S2C_TAB_ENTRY    = 8;
 local S2C_END_LIST     = 2;
 local TAB_SOURCE_VAULT = 1;
 
@@ -164,7 +164,7 @@ local function renderItems()
                 id   = item.iconId,
                 name = name,
                 qty  = tonumber(item.tier) or 1,
-            }, idx);
+            }, idx, renderTooltip);
         end
     end
     imgui.EndChild();
@@ -205,10 +205,11 @@ return {
     name        = 'Vault',
     description = 'Browse Mog Vault deposit boxes and wardrobes',
 
-    init = function(sharedRenderIcon, sharedGetItemRes, sharedUi)
+    init = function(sharedRenderIcon, sharedGetItemRes, sharedUi, sharedRenderTooltip)
         renderIcon = sharedRenderIcon;
         getItemRes = sharedGetItemRes;
         ui = sharedUi;
+        renderTooltip = sharedRenderTooltip;
     end,
 
     commands = {
@@ -250,26 +251,27 @@ return {
             return;
         end
 
-        -- Item entries (shared with squire format)
-        if action == S2C_SQUIRE_ENTRY and selectedCat then
+        -- Tab entry (source = vault)
+        if action == S2C_TAB_ENTRY then
+            local source = struct.unpack('B', e.data_modified, 0x05 + 1);
+            if source ~= TAB_SOURCE_VAULT then return; end
+
             local iconId   = readU16(e.data_modified, 0x06);
-            local category = readString(e.data_modified, 0x08, 19);
             local name     = readString(e.data_modified, 0x34, 23);
             local tier     = readString(e.data_modified, 0x4C, 7);
 
-            -- Only capture if it's for our current category
-            if category == selectedCat then
-                table.insert(items, {
-                    iconId = iconId,
-                    name   = name,
-                    tier   = tier,
-                });
-            end
+            table.insert(items, {
+                iconId = iconId,
+                name   = name,
+                tier   = tier,
+            });
             return;
         end
 
-        -- End list
-        if action == S2C_END_LIST and selectedCat and not itemsLoaded then
+        -- End list (source = vault)
+        if action == S2C_END_LIST then
+            local source = struct.unpack('B', e.data_modified, 0x05 + 1);
+            if source ~= TAB_SOURCE_VAULT then return; end
             itemsLoaded = true;
             return;
         end

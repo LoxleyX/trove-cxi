@@ -350,7 +350,7 @@ end
 local FLAG_RARE = 0x8000;
 local FLAG_EX   = 0x4000;
 
-ui.itemRow = function(renderIconFn, getItemResFn, item, index)
+ui.itemRow = function(renderIconFn, getItemResFn, item, index, tooltipFn)
     index = index or 0;
     local itemId = item.id or item.iconId or 0;
     local res = getItemResFn(itemId);
@@ -376,9 +376,8 @@ ui.itemRow = function(renderIconFn, getItemResFn, item, index)
         imgui.Dummy({ 24, 24 });
     end
     imgui.SameLine(34);
-    imgui.SetCursorPosY(7);
 
-    -- Name
+    -- Name + badges drawn via drawlist
     local dl  = imgui.GetWindowDrawList();
     local wx, wy = imgui.GetWindowPos();
     local ww = imgui.GetWindowWidth();
@@ -423,6 +422,12 @@ ui.itemRow = function(renderIconFn, getItemResFn, item, index)
     dl:AddText({ nameX, wy + 7 }, imgui.GetColorU32(ui.color('white')), displayName);
 
     imgui.EndChild();
+
+    -- Tooltip on child hover (must be after EndChild)
+    if tooltipFn and imgui.IsItemHovered() then
+        tooltipFn({ id = itemId, name = name, qty = qty });
+    end
+
     imgui.PopStyleColor(1);
 end
 
