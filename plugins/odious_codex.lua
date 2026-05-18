@@ -31,10 +31,10 @@ local ZONES = {
             { name = "Chapter 5",       id = 3408, mask = 'A', bit = 15, spawns = "Arch Overlord (5/5)" },
         },
         drops = {
-            { name = "Odious Scale",       id = 3380, mask = 'C', bit = 9 },
-            { name = "Odious Leather",     id = 3381, mask = 'C', bit = 10 },
-            { name = "Odious Cryptex",     id = 3382, mask = 'C', bit = 11 },
-            { name = "Odious Strongbox",   id = 3383, mask = 'C', bit = 12 },
+            { name = "Odious Scale",       id = 3380, mask = 'C', bit = 9,  spawns = "Bladeburner Rokgevok" },
+            { name = "Odious Leather",     id = 3381, mask = 'C', bit = 10, spawns = "Steelshank Kratzvatz" },
+            { name = "Odious Cryptex",     id = 3382, mask = 'C', bit = 11, spawns = "Bloodfist Voshgrosh" },
+            { name = "Odious Strongbox",   id = 3383, mask = 'C', bit = 12, spawns = "Spellspear Djokvukk" },
         },
     },
     {
@@ -48,10 +48,10 @@ local ZONES = {
             { name = "Chapter 10",      id = 3413, mask = 'A', bit = 20, spawns = "Arch Gu'Dha (5/5)" },
         },
         drops = {
-            { name = "Odious Charm",       id = 3384, mask = 'C', bit = 5 },
-            { name = "Odious Backscale",   id = 3385, mask = 'C', bit = 6 },
-            { name = "Odious Engraving",   id = 3386, mask = 'C', bit = 7 },
-            { name = "Odious Letterbox",   id = 3387, mask = 'C', bit = 8 },
+            { name = "Odious Charm",       id = 3384, mask = 'C', bit = 5,  spawns = "Zo'Pha Forgesoul" },
+            { name = "Odious Backscale",   id = 3385, mask = 'C', bit = 6,  spawns = "Ra'Gho Darkfount" },
+            { name = "Odious Engraving",   id = 3386, mask = 'C', bit = 7,  spawns = "Va'Zhe Pummelsong" },
+            { name = "Odious Letterbox",   id = 3387, mask = 'C', bit = 8,  spawns = "Bu'Bho Truesteel" },
         },
     },
     {
@@ -65,10 +65,10 @@ local ZONES = {
             { name = "Chapter 15",      id = 3418, mask = 'A', bit = 25, spawns = "Arch Tzee Xicu (5/5)" },
         },
         drops = {
-            { name = "Odious Necklace",    id = 3388, mask = 'C', bit = 1 },
-            { name = "Odious Feather",     id = 3389, mask = 'C', bit = 2 },
-            { name = "Odious Holy Water",  id = 3390, mask = 'C', bit = 3 },
-            { name = "Odious Quipu",       id = 3391, mask = 'C', bit = 4 },
+            { name = "Odious Necklace",    id = 3388, mask = 'C', bit = 1,  spawns = "Xuu Bhoqa the Enigma" },
+            { name = "Odious Feather",     id = 3389, mask = 'C', bit = 2,  spawns = "Fuu Tzapo the Blessed" },
+            { name = "Odious Holy Water",  id = 3390, mask = 'C', bit = 3,  spawns = "Naa Yixo the Stillrage" },
+            { name = "Odious Quipu",       id = 3391, mask = 'C', bit = 4,  spawns = "Tee Zaksa the Ceaseless" },
         },
     },
     {
@@ -122,9 +122,9 @@ local ZONES = {
             { name = "Tome II Ch.4",    id = 3473, mask = 'B', bit = 12, spawns = "Arch Christelle (4/4)" },
         },
         drops = {
-            { name = "Nightmare Bud",     id = 3461, mask = 'C', bit = 13 },
-            { name = "Nightmare Log",     id = 3460, mask = 'C', bit = 14 },
-            { name = "Nightmare Water",   id = 3462, mask = 'C', bit = 15 },
+            { name = "Nightmare Bud",     id = 3461, mask = 'C', bit = 13, spawns = "Lost Nant'ina" },
+            { name = "Nightmare Log",     id = 3460, mask = 'C', bit = 14, spawns = "Lost Fairy Ring" },
+            { name = "Nightmare Water",   id = 3462, mask = 'C', bit = 15, spawns = "Lost Stcemqestcint" },
         },
     },
     {
@@ -138,10 +138,10 @@ local ZONES = {
             { name = "Tome II Ch.9",    id = 3478, mask = 'B', bit = 17, spawns = "Arch Apoc. Beast (5/5)" },
         },
         drops = {
-            { name = "Nightmare Shank",   id = 3463, mask = 'C', bit = 16 },
-            { name = "Nightmare Loin",    id = 3465, mask = 'C', bit = 17 },
-            { name = "Nightmare Roast",   id = 3464, mask = 'C', bit = 18 },
-            { name = "Nightmare Chop",    id = 3466, mask = 'C', bit = 19 },
+            { name = "Nightmare Shank",   id = 3463, mask = 'C', bit = 16, spawns = "Lost Stihi" },
+            { name = "Nightmare Loin",    id = 3465, mask = 'C', bit = 17, spawns = "Lost Alklha" },
+            { name = "Nightmare Roast",   id = 3464, mask = 'C', bit = 18, spawns = "Lost Barong" },
+            { name = "Nightmare Chop",    id = 3466, mask = 'C', bit = 19, spawns = "Lost Aitvaras" },
         },
     },
     {
@@ -154,9 +154,9 @@ local ZONES = {
             { name = "Tome II Ch.13",   id = 3482, mask = 'B', bit = 21, spawns = "Arch Antaeus (4/4)" },
         },
         drops = {
-            { name = "Nightmare Shard",   id = 3469, mask = 'C', bit = 20 },
-            { name = "Nightmare Shell",   id = 3467, mask = 'C', bit = 21 },
-            { name = "Nightmare Blood",   id = 3468, mask = 'C', bit = 22 },
+            { name = "Nightmare Shard",   id = 3469, mask = 'C', bit = 20, spawns = "Lost Suttung" },
+            { name = "Nightmare Shell",   id = 3467, mask = 'C', bit = 21, spawns = "Lost Scolopendra" },
+            { name = "Nightmare Blood",   id = 3468, mask = 'C', bit = 22, spawns = "Lost Stringes" },
         },
     },
     {
