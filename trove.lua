@@ -685,6 +685,7 @@ local ui = {
     keybindDone     = false,
     craftSearchBuf  = { '' },
     craftSearchSize = 32,
+    craftHaveMats   = { false },
 };
 
 local searchDebounce = {
@@ -2768,6 +2769,9 @@ local function renderCraftingTab()
             imgui.TextColored(COLORS.header, state.craftItemName);
         end
 
+        imgui.SameLine(0, 12);
+        imgui.Checkbox('Have Mats', ui.craftHaveMats);
+
         imgui.Spacing();
         imgui.Separator();
         imgui.Spacing();
@@ -2775,13 +2779,22 @@ local function renderCraftingTab()
         imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.windowBg);
         imgui.BeginChild('##craft_scroll', { -1, -1 }, false);
 
+        local filterMats = ui.craftHaveMats[1];
+        local shown = 0;
         if #state.craftRecipes == 0 then
             imgui.Spacing(); imgui.Spacing();
             imgui.TextColored(COLORS.dimmed, 'No crafting recipes found for this item.');
         else
             for i, recipe in ipairs(state.craftRecipes) do
-                if i > 1 then imgui.Spacing(); imgui.Separator(); imgui.Spacing(); end
-                renderRecipe(recipe, i);
+                if not filterMats or recipe.craftable > 0 then
+                    if shown > 0 then imgui.Spacing(); imgui.Separator(); imgui.Spacing(); end
+                    renderRecipe(recipe, i);
+                    shown = shown + 1;
+                end
+            end
+            if shown == 0 and filterMats then
+                imgui.Spacing(); imgui.Spacing();
+                imgui.TextColored(COLORS.dimmed, 'No recipes with available materials.');
             end
         end
 
