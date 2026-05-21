@@ -54,6 +54,39 @@ local bitmasks    = {};
 local selectedCat = nil;
 local ROW_HEIGHT  = 26;
 
+-- Representative icon per category
+local CAT_ICONS = {
+    ['White Magic'] = 4609,  -- Cure
+    ['Black Magic'] = 4752,  -- Fire
+    ['Summoning']   = 4896,  -- Fire Spirit
+    ['Ninjutsu']    = 4928,  -- Katon: Ichi
+    ['Songs']       = 4976,  -- Foe Requiem
+    ['Dice']        = 5477,  -- Warrior Die
+    ['Geomancy']    = 6073,  -- Indi-Regen
+};
+
+-- Spell name -> spell ID lookup (built on init, for "learned" detection)
+local spellNameToId = {};
+local spellMapBuilt = false;
+
+local function buildSpellMap()
+    if spellMapBuilt then return; end
+    spellMapBuilt = true;
+    local resMgr = AshitaCore:GetResourceManager();
+    for i = 0, 1024 do
+        local spell = resMgr:GetSpellById(i);
+        if spell and spell.Name and spell.Name[1] and spell.Name[1] ~= '' then
+            spellNameToId[spell.Name[1]] = i;
+        end
+    end
+end
+
+local function isSpellLearned(spellName)
+    local spellId = spellNameToId[spellName];
+    if spellId == nil then return false; end
+    return AshitaCore:GetMemoryManager():GetPlayer():HasSpell(spellId);
+end
+
 ------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------
@@ -107,6 +140,8 @@ local function renderCategoryList()
         local owned, total = countOwned(catIdx);
         local pct = total > 0 and math.floor(owned / total * 100) or 0;
         local subtitle = string.format('%d / %d (%d%%)', owned, total, pct);
+        local iconId = CAT_ICONS[cat.name];
+        if iconId then renderIcon(iconId, 28); imgui.SameLine(0, 6); end
         if ui.categoryButton(cat.name, subtitle, catIdx) then
             selectedCat = catIdx;
         end
@@ -149,12 +184,18 @@ local function renderScrollList()
             local spellName = scroll[1];
             local itemId    = scroll[2];
             local has       = hasBit(mask, i - 1);
+            local learned   = isSpellLearned(spellName);
             local isAlt     = (i % 2 == 0);
 
             local base = ui.color('childBg');
-            local bgColor = isAlt
-                and { base[1], base[2], base[3], 0.35 }
-                or  { base[1], base[2], base[3], 0.20 };
+            local bgColor;
+            if learned then
+                bgColor = { 0.12, 0.25, 0.12, 0.50 };
+            elseif isAlt then
+                bgColor = { base[1], base[2], base[3], 0.35 };
+            else
+                bgColor = { base[1], base[2], base[3], 0.20 };
+            end
 
             local rowId = string.format('##sr_%d_%d_%d', selectedCat, pageIdx, i);
             imgui.PushStyleColor(ImGuiCol_ChildBg, bgColor);
@@ -177,16 +218,38 @@ local function renderScrollList()
                 or  (ui.color('dimmed') or { 0.4, 0.4, 0.4, 1.0 });
             dl:AddText({ wx + 30, wy + 6 }, imgui.GetColorU32(nameColor), spellName);
 
-            -- Owned indicator
+            -- Status badges (right-aligned, drawn via drawlist)
+            local ww = imgui.GetWindowWidth();
+            local badgeX = wx + ww;
+            local badgeY = wy + 4;
+            local badgeH = 16;
+            local badgePad = 4;
+
+            local function drawBadge(text, fg, bg)
+                local tw = imgui.CalcTextSize(text);
+                local bw = tw + badgePad * 2;
+                badgeX = badgeX - bw - 4;
+                dl:AddRectFilled({ badgeX, badgeY }, { badgeX + bw, badgeY + badgeH }, imgui.GetColorU32(bg), 3);
+                dl:AddText({ badgeX + badgePad, badgeY + 1 }, imgui.GetColorU32(fg), text);
+            end
+
             if has then
-                local ww = imgui.GetWindowWidth();
-                dl:AddText({ wx + ww - 16, wy + 6 }, imgui.GetColorU32(ui.color('green') or { 0.4, 0.9, 0.4, 1.0 }), '*');
+                drawBadge('Stored', { 0.30, 0.85, 0.30, 1.0 }, { 0.15, 0.30, 0.15, 0.80 });
+            end
+            if learned then
+                drawBadge('Learned', { 0.40, 0.75, 1.0, 1.0 }, { 0.12, 0.20, 0.35, 0.80 });
             end
 
             imgui.EndChild();
 
-            if hovered and renderTooltip then
-                renderTooltip({ id = itemId, name = spellName });
+            if hovered then
+                -- Use shared tooltip for full item details (description, jobs, level)
+                if renderTooltip then
+                    renderTooltip({ id = itemId, name = spellName });
+                end
+                -- Append status as a separate tooltip line
+                -- (The shared tooltip handles BeginTooltip/EndTooltip,
+                --  so we add status via the item row's right-side indicator instead)
             end
 
             imgui.PopStyleColor(1);
@@ -235,6 +298,7 @@ return {
         getItemRes = sharedGetItemRes;
         ui = sharedUi;
         renderTooltip = sharedRenderTooltip;
+        buildSpellMap();
     end,
 
     commands = {

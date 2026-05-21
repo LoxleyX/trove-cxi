@@ -20,7 +20,7 @@
 
 addon.name      = 'trove';
 addon.author    = 'Loxley';
-addon.version   = '2.0.0';
+addon.version   = '2.1.0';
 addon.desc      = 'Browse Ephemeral Box, Currency, Points, and Squire in-game';
 
 require('common');
@@ -1993,6 +1993,10 @@ local function renderCurrencyTab()
 
                 imgui.EndChild();
                 imgui.PopStyleColor(1);
+
+                if imgui.IsItemHovered() and entry.iconId and entry.iconId > 0 then
+                    renderTooltip({ id = entry.iconId, name = entry.name });
+                end
             end
 
             imgui.Spacing();
