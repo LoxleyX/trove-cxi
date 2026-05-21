@@ -545,6 +545,6 @@ return {
         render  = renderWindow,
         label   = 'Odious Codex',
         icon    = 30840,
-        cwOnly  = true,
+        cwOnly  = false,
     },
 };

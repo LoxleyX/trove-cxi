@@ -163,6 +163,7 @@ plugins.getMenuEntries = function()
                 label     = entry.plugin.menu.label or entry.plugin.name,
                 action    = entry.plugin.menu.action,
                 separator = entry.plugin.menu.separator or false,
+                bottom    = entry.plugin.menu.bottom or false,
                 plugin    = entry.plugin,
             };
         end
@@ -211,13 +212,23 @@ end
 -- Get plugins that have windows (for menu toggles)
 ------------------------------------------------------------
 plugins.getWindowPlugins = function()
-    local result = {};
+    local top = {};
+    local bottom = {};
     for _, entry in ipairs(loaded) do
         if entry.plugin.window then
-            result[#result + 1] = entry.plugin;
+            if entry.plugin.window.bottom then
+                bottom[#bottom + 1] = entry.plugin;
+            else
+                top[#top + 1] = entry.plugin;
+            end
         end
     end
-    return result;
+    -- Bottom plugins get a separator before them
+    if #bottom > 0 and #top > 0 then
+        bottom[1]._menuSeparator = true;
+    end
+    for _, p in ipairs(bottom) do top[#top + 1] = p; end
+    return top;
 end
 
 ------------------------------------------------------------

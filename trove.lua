@@ -20,7 +20,7 @@
 
 addon.name      = 'trove';
 addon.author    = 'Loxley';
-addon.version   = '1.5.0';
+addon.version   = '2.0.0';
 addon.desc      = 'Browse Ephemeral Box, Currency, Points, and Squire in-game';
 
 require('common');
@@ -2959,7 +2959,7 @@ local function renderWindow()
                 if win.cwOnly and not state.isCrystalWarrior then
                     -- skip
                 else
-                    if win.separator then imgui.Separator(); end
+                    if win.separator or plugin._menuSeparator then imgui.Separator(); end
                     if win.icon then renderIcon(win.icon, 16); imgui.SameLine(0, 6); end
                     local label = win.label or plugin.name;
                     if plugin.hasAlert and plugin.hasAlert() then label = label .. ' (!)'; end
@@ -2969,17 +2969,29 @@ local function renderWindow()
                 end
             end
 
-            -- Render plugin menu actions (commands that aren't window toggles)
+            -- Render plugin menu actions (non-bottom only; bottom ones are already in the window list)
             local menuEntries = trove_plugins.getMenuEntries();
-            if #menuEntries > 0 then
-                imgui.Separator();
-            end
+            local hasNonBottom = false;
             for _, entry in ipairs(menuEntries) do
-                if entry.separator then
-                    imgui.Separator();
+                if not entry.bottom then hasNonBottom = true; break; end
+            end
+            if hasNonBottom then
+                imgui.Separator();
+                for _, entry in ipairs(menuEntries) do
+                    if not entry.bottom then
+                        if imgui.Selectable(entry.label) then
+                            entry.action(state);
+                        end
+                    end
                 end
-                if imgui.Selectable(entry.label) then
-                    entry.action(state);
+            end
+
+            -- Bottom menu entries (after the bottom window plugins)
+            for _, entry in ipairs(menuEntries) do
+                if entry.bottom then
+                    if imgui.Selectable(entry.label) then
+                        entry.action(state);
+                    end
                 end
             end
 

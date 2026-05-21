@@ -232,6 +232,7 @@ local plugin = {
         label  = 'Settings',
         icon   = 46,       -- Armor Box icon
         render = renderWindow,
+        bottom = true,
     },
 };
 
