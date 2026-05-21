@@ -214,6 +214,11 @@ local function renderZoneDetail()
     ui.colored(zone.name, 'header');
     imgui.SameLine();
     ui.dim(string.format('(%d/8)', countZoneOwned(zone)));
+    imgui.SameLine(imgui.GetWindowWidth() - 80);
+    if ui.button('Refresh', 60, 22) then
+        dataLoaded = false;
+        sendRequest();
+    end
     imgui.Separator();
     imgui.Spacing();
 
