@@ -380,9 +380,11 @@ end
 ------------------------------------------------------------
 -- Texture cache (game item icons + file-based images)
 ------------------------------------------------------------
-local textureCache   = {};
-local fileTextures   = {};  -- filename -> texture
-local textureHandles = {};  -- itemId|filename -> tonumber(uint32) for imgui.Image
+local textureCache      = {};
+local fileTextures      = {};  -- filename -> texture
+local textureHandles    = {};  -- itemId|filename -> tonumber(uint32) for imgui.Image
+local textureLRU        = {};  -- LRU queue of item IDs for eviction
+local TEXTURE_CACHE_MAX = 512;
 
 local function loadItemTexture(itemId)
     if textureCache[itemId] ~= nil then return textureCache[itemId]; end
@@ -390,6 +392,13 @@ local function loadItemTexture(itemId)
 
     local item = getItemRes(itemId);
     if item == nil or item.ImageSize == 0 then textureCache[itemId] = false; return false; end
+
+    -- Evict oldest texture if cache is full
+    if #textureLRU >= TEXTURE_CACHE_MAX then
+        local evict = table.remove(textureLRU, 1);
+        textureCache[evict]   = nil;
+        textureHandles[evict] = nil;
+    end
 
     local ptr = ffi.new('IDirect3DTexture8*[1]');
     if (C.D3DXCreateTextureFromFileInMemoryEx(
@@ -404,6 +413,7 @@ local function loadItemTexture(itemId)
     local tex = d3d.gc_safe_release(ffi.cast('IDirect3DTexture8*', ptr[0]));
     textureCache[itemId] = tex;
     textureHandles[itemId] = tonumber(ffi.cast('uint32_t', tex));
+    textureLRU[#textureLRU + 1] = itemId;
     return tex;
 end
 
@@ -3165,6 +3175,7 @@ ashita.events.register('unload', 'trove_unload', function()
     textureCache   = {};
     fileTextures   = {};
     textureHandles = {};
+    textureLRU     = {};
     craftIndex     = nil;
     craftIndexSize = 0;
 
