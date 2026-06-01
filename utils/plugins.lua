@@ -141,6 +141,20 @@ plugins.onPacketIn = function(e, state)
 end
 
 ------------------------------------------------------------
+-- Dispatch plugin data to the plugin that registered for
+-- a given pluginId. Each plugin can set pluginId = N in
+-- its interface table to receive PLUGIN_DATA responses.
+------------------------------------------------------------
+plugins.onPluginData = function(pluginId, data, state)
+    for _, entry in ipairs(loaded) do
+        if entry.plugin.pluginId == pluginId and entry.plugin.onPluginData then
+            pcall(entry.plugin.onPluginData, data, state);
+            return;
+        end
+    end
+end
+
+------------------------------------------------------------
 -- Dispatch render to all plugins
 ------------------------------------------------------------
 plugins.onRender = function(state)

@@ -20,7 +20,7 @@
 
 addon.name      = 'trove';
 addon.author    = 'Loxley';
-addon.version   = '2.2.1';
+addon.version   = '2.3.0';
 addon.desc      = 'Browse Ephemeral Box, Currency, Points, and Squire in-game';
 
 require('common');
@@ -61,6 +61,7 @@ local C2S = {
     GET_RECIPE        = 10,
     GET_TAB_SUMMARY   = 13,
     GET_TAB_CATEGORY  = 14,
+    GET_PLUGIN_DATA   = 16,
 };
 
 local S2C = {
@@ -75,6 +76,7 @@ local S2C = {
     TAB_ENTRY      = 8,
     RECIPE         = 11,
     TAB_SUMMARY    = 12,
+    PLUGIN_DATA    = 17,
 };
 
 -- Tab source IDs (matches C++ TAB_SOURCE_* constants)
@@ -1279,6 +1281,14 @@ ashita.events.register('packet_in', 'trove_packet_in', function(e)
         if state.pendingRequest ~= 'crafting' then
             state.pendingRequest = nil;
         end
+        return;
+    end
+
+    -- Generic plugin data: route raw payload to plugins by pluginId.
+    -- Plugins register for a pluginId and receive the full packet data.
+    if action == S2C.PLUGIN_DATA then
+        local pluginId = struct.unpack('B', e.data_modified, 0x05 + 1);
+        trove_plugins.onPluginData(pluginId, e.data_modified, state);
         return;
     end
 

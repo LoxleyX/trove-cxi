@@ -42,6 +42,7 @@ Plugins add floating windows accessible from the menu (`=` button).
 | Odious Codex | Dynamis pop item collection tracker | All |
 | Stronghold | SCNM artifact collection tracker | All |
 | Scrolls | Scroll collection tracker | CW |
+| Lumoria | Sea collection tracker (armor, torques, weapons, organs, buffs) | All |
 | Export | Export inventory, jobs, and merits to Lua file | All |
 | Settings | Theme and display settings | All |
 
@@ -53,6 +54,8 @@ Plugins add floating windows accessible from the menu (`=` button).
 | `/trove vault` | Toggle Vault plugin |
 | `/trove stronghold` | Toggle Stronghold plugin |
 | `/trove scrolls` | Toggle Scrolls plugin |
+| `/trove lumoria` | Toggle Lumoria plugin |
+| `/trove sea` | Alias for lumoria |
 | `/trove export` | Run inventory export |
 
 ## Requirements
