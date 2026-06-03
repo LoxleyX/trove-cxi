@@ -3,7 +3,7 @@
 *
 * Displays Mog Vault Deposit Boxes and Wardrobe contents.
 * Uses the generic tab protocol (TAB_SOURCE = 1).
-* Supports item withdrawal via action 15.
+* Supports item withdrawal (action 15) and deposit (action 18).
 *
 * Command: /trove vault
 ]]--
@@ -31,11 +31,18 @@ local searchBuf       = { '' };
 
 -- Selection + withdraw state
 local selectedItem     = nil;     -- index into items[]
-local withdrawCooldown = 0;
+local operationCooldown = 0;
 local COOLDOWN_SEC     = 2.0;
 local statusMsg        = '';
 local statusTime       = 0;
 local statusIsErr      = false;
+local pendingOp        = nil;     -- 'withdraw' or 'deposit'
+
+-- Deposit state
+local depositItems       = {};
+local depositItemsLoaded = false;
+local depositSearchBuf   = { '' };
+local depositPopupItem   = nil;   -- item for container picker popup
 
 ------------------------------------------------------------
 -- Protocol
@@ -44,11 +51,17 @@ local PACKET_ID            = 0x1A4;
 local C2S_TAB_SUMMARY     = 13;
 local C2S_TAB_CATEGORY     = 14;
 local C2S_VAULT_WITHDRAW   = 15;
+local C2S_VAULT_DEPOSIT    = 16;
 local S2C_TAB_SUMMARY     = 12;
 local S2C_TAB_ENTRY        = 8;
 local S2C_END_LIST         = 2;
 local S2C_ACK              = 3;
 local TAB_SOURCE_VAULT     = 1;
+local VAULT_MAX_SIZE       = 80;
+
+-- Item flags (from item_basic)
+local FLAG_CANEQUIP = 0x0800;
+local FLAG_RARE     = 0x8000;
 
 local function makePacket()
     local p = {};
@@ -78,7 +91,18 @@ local function sendVaultWithdraw(locId, slotId)
     p[7] = locId;
     p[8] = slotId;
     AshitaCore:GetPacketManager():AddOutgoingPacket(PACKET_ID, p);
-    withdrawCooldown = os.clock() + COOLDOWN_SEC;
+    operationCooldown = os.clock() + COOLDOWN_SEC;
+    pendingOp = 'withdraw';
+end
+
+local function sendVaultDeposit(locId, invSlot)
+    local p = makePacket();
+    p[5] = C2S_VAULT_DEPOSIT;
+    p[7] = locId;
+    p[8] = invSlot;
+    AshitaCore:GetPacketManager():AddOutgoingPacket(PACKET_ID, p);
+    operationCooldown = os.clock() + COOLDOWN_SEC;
+    pendingOp = 'deposit';
 end
 
 ------------------------------------------------------------
@@ -104,7 +128,7 @@ end
 -- Helpers
 ------------------------------------------------------------
 local function isOnCooldown()
-    return os.clock() < withdrawCooldown;
+    return os.clock() < operationCooldown;
 end
 
 local function parseSubtype(subtype)
@@ -112,7 +136,7 @@ local function parseSubtype(subtype)
     return tonumber(locId), tonumber(slotId);
 end
 
--- Town zones where vault withdrawal is allowed (matches server VAULT_ZONES)
+-- Town zones where vault operations are allowed (matches server VAULT_ZONES)
 local TOWN_ZONES = {
     [232]=true, [231]=true, [230]=true, -- San d'Oria
     [236]=true, [234]=true, [235]=true, -- Bastok
@@ -144,8 +168,67 @@ local function getWithdrawCost()
     return WITHDRAW_COSTS[numUpgrades] or 2000;
 end
 
+-- Map summary category name to vault location ID
+local function categoryToLocId(category)
+    local letter = category:match('Deposit Box (%a)');
+    if letter then
+        -- VAULTSTORAGE_A = 19, B = 20, ...
+        return 19 + (string.byte(letter) - string.byte('A'));
+    end
+    letter = category:match('Wardrobe (%a)');
+    if letter then
+        -- VAULTWARDROBE_A = 45, B = 46, ...
+        return 45 + (string.byte(letter) - string.byte('A'));
+    end
+    return nil;
+end
+
 ------------------------------------------------------------
--- Render: Summary view
+-- Inventory scanning (for deposit tab)
+------------------------------------------------------------
+local function scanInventory()
+    depositItems = {};
+    local inventory = AshitaCore:GetMemoryManager():GetInventory();
+    local resMgr = AshitaCore:GetResourceManager();
+    if not inventory then
+        depositItemsLoaded = true;
+        return;
+    end
+
+    local max = inventory:GetContainerCountMax(0); -- container 0 = inventory
+    if not max or max == 0 then
+        depositItemsLoaded = true;
+        return;
+    end
+
+    for i = 1, max - 1 do -- skip slot 0 (gil)
+        local ok, item = pcall(function() return inventory:GetContainerItem(0, i); end);
+        if ok and item and item.Id ~= 0 and item.Id ~= 65535 then
+            local id = item.Id;
+            -- Skip storage slips (29312-29339)
+            if id < 29312 or id > 29339 then
+                local res = resMgr:GetItemById(id);
+                local name = (res and res.Name and res.Name[1]) or '???';
+                local flags = (res and res.Flags) or 0;
+                table.insert(depositItems, {
+                    id      = id,
+                    name    = name,
+                    qty     = item.Count or 1,
+                    slot    = i,
+                    isEquip = bit.band(flags, FLAG_CANEQUIP) ~= 0,
+                    isRare  = bit.band(flags, FLAG_RARE) ~= 0,
+                });
+            end
+        end
+    end
+
+    -- Sort alphabetically by name
+    table.sort(depositItems, function(a, b) return a.name:lower() < b.name:lower(); end);
+    depositItemsLoaded = true;
+end
+
+------------------------------------------------------------
+-- Render: Summary view (Withdraw tab)
 ------------------------------------------------------------
 local function renderSummary()
     if summaryLoaded ~= true then
@@ -167,15 +250,13 @@ local function renderSummary()
 
     imgui.BeginChild('##vault_summary', { -1, -1 }, false);
     for i, entry in ipairs(summary) do
-        local subtitle = string.format('%d item%s stored', entry.count, entry.count ~= 1 and 's' or '');
+        local subtitle = string.format('%d / %d items', entry.count, VAULT_MAX_SIZE);
         local isWardrobe = entry.category:find('Wardrobe');
         local iconId = isWardrobe and 61 or 46; -- Armoire / Armor Box
 
         renderIcon(iconId, 28);
         imgui.SameLine(0, 6);
 
-        -- Category button (inline, reduced width to account for icon)
-        local btnWidth = imgui.GetContentRegionAvail();
         if ui.categoryButton(entry.category, subtitle, i) then
             selectedCat = entry.category;
             selectedItem = nil;
@@ -190,7 +271,7 @@ local function renderSummary()
 end
 
 ------------------------------------------------------------
--- Render: Item list view
+-- Render: Item list view (Withdraw tab)
 ------------------------------------------------------------
 local function renderItems()
     if ui.button('< Back', 55, 22) then
@@ -366,6 +447,181 @@ local function renderItems()
 end
 
 ------------------------------------------------------------
+-- Render: Deposit tab
+------------------------------------------------------------
+local function renderDepositTab()
+    if summaryLoaded ~= true then
+        ui.dim('Loading...');
+        return;
+    end
+
+    if #summary == 0 then
+        ui.dim('No vault containers unlocked.');
+        return;
+    end
+
+    if not depositItemsLoaded then
+        scanInventory();
+    end
+
+    -- Header row: Refresh + zone warning
+    if ui.button('Refresh', 60, 22) then
+        scanInventory();
+        summaryLoaded = false;
+        sendVaultSummary();
+    end
+
+    if not isInTown() then
+        imgui.SameLine(0, 8);
+        imgui.TextColored({ 1, 0.5, 0.5, 1 }, 'Must be in a town.');
+    end
+
+    imgui.Separator();
+    imgui.Spacing();
+
+    if #depositItems == 0 then
+        ui.dim('No items to deposit.');
+        return;
+    end
+
+    -- Search filter
+    imgui.PushItemWidth(-1);
+    imgui.InputText('##deposit_search', depositSearchBuf, 256);
+    imgui.PopItemWidth();
+    imgui.Spacing();
+
+    local filter = depositSearchBuf[1]:lower();
+
+    -- Status message height
+    local statusH = (statusMsg ~= '' and os.clock() < statusTime + 3) and 22 or 0;
+
+    -- Item list
+    local clickedItem = nil;
+
+    imgui.BeginChild('##deposit_items', { -1, -1 - statusH }, false);
+    local idx = 0;
+    for i, item in ipairs(depositItems) do
+        if filter == '' or item.name:lower():find(filter, 1, true) then
+            idx = idx + 1;
+            local isAlt = (idx % 2 == 0);
+
+            local base = ui.color('childBg');
+            local bgColor = isAlt
+                and { base[1], base[2], base[3], 0.35 }
+                or  { base[1], base[2], base[3], 0.20 };
+
+            local rowId = string.format('##dr_%d', i);
+            imgui.PushStyleColor(ImGuiCol_ChildBg, bgColor);
+            imgui.BeginChild(rowId, { -1, 28 }, false);
+
+            imgui.SetCursorPos({ 4, 1 });
+            renderIcon(item.id, 24);
+            imgui.SameLine(32);
+
+            imgui.SetCursorPosY(0);
+            local rowClicked = imgui.Selectable(string.format('##dsel_%d', i), false,
+                ImGuiSelectableFlags_SpanAllColumns, { 0, 28 });
+
+            local dl = imgui.GetWindowDrawList();
+            local wx, wy = imgui.GetWindowPos();
+            dl:AddText({ wx + 32, wy + 7 }, imgui.GetColorU32(ui.color('white')), item.name);
+
+            if item.qty > 1 then
+                local nameW = imgui.CalcTextSize(item.name);
+                dl:AddText({ wx + 34 + nameW, wy + 7 }, imgui.GetColorU32(ui.color('dimmed')),
+                    ' x' .. item.qty);
+            end
+
+            imgui.EndChild();
+            imgui.PopStyleColor(1);
+
+            if imgui.IsItemHovered() and renderTooltip then
+                renderTooltip({ id = item.id, name = item.name, qty = item.qty });
+            end
+
+            if rowClicked then
+                clickedItem = item;
+            end
+        end
+    end
+    imgui.EndChild();
+
+    -- Open popup after scroll child (so it's at window level)
+    if clickedItem then
+        depositPopupItem = clickedItem;
+        imgui.OpenPopup('##container_picker');
+    end
+
+    -- Container picker popup
+    if imgui.BeginPopup('##container_picker') then
+        if depositPopupItem then
+            local item = depositPopupItem;
+            local inTown = isInTown();
+            local cooldown = isOnCooldown();
+
+            -- Header: item being deposited
+            renderIcon(item.id, 22);
+            imgui.SameLine(0, 6);
+            ui.colored(item.name, 'white');
+            if item.qty > 1 then
+                imgui.SameLine(0, 4);
+                ui.dim('x' .. item.qty);
+            end
+            imgui.Separator();
+            imgui.Spacing();
+
+            for ci, entry in ipairs(summary) do
+                local locId = categoryToLocId(entry.category);
+                local isWardrobe = entry.category:find('Wardrobe') ~= nil;
+                local isFull = entry.count >= VAULT_MAX_SIZE;
+                local cantEquip = isWardrobe and not item.isEquip;
+                local disabled = isFull or cantEquip or not inTown or cooldown or not locId;
+
+                local label = string.format('%s (%d/%d)', entry.category, entry.count, VAULT_MAX_SIZE);
+
+                if disabled then
+                    imgui.PushStyleVar(ImGuiStyleVar_Alpha, 0.35);
+                end
+
+                if imgui.Selectable(label .. '###dep_' .. ci, false) then
+                    if not disabled then
+                        sendVaultDeposit(locId, item.slot);
+                        imgui.CloseCurrentPopup();
+                    end
+                end
+
+                if disabled and imgui.IsItemHovered() then
+                    local reason = '';
+                    if not inTown then reason = 'Must be in a town.';
+                    elseif cooldown then reason = 'Please wait...';
+                    elseif isFull then reason = 'Container full.';
+                    elseif cantEquip then reason = 'Wardrobes only accept equipment.';
+                    end
+                    if reason ~= '' then
+                        imgui.SetTooltip(reason);
+                    end
+                end
+
+                if disabled then
+                    imgui.PopStyleVar();
+                end
+            end
+        end
+        imgui.EndPopup();
+    end
+
+    -- Status message
+    if statusMsg ~= '' and os.clock() < statusTime + 3 then
+        imgui.SetCursorPosX(8);
+        if statusIsErr then
+            imgui.TextColored({ 1, 0.4, 0.4, 1 }, statusMsg);
+        else
+            imgui.TextColored({ 0.4, 1, 0.4, 1 }, statusMsg);
+        end
+    end
+end
+
+------------------------------------------------------------
 -- Main render
 ------------------------------------------------------------
 local function renderWindow()
@@ -376,17 +632,32 @@ local function renderWindow()
         summaryLoaded = 'pending';
     end
 
-    imgui.SetNextWindowSize({ 420, 450 }, ImGuiCond_FirstUseEver);
+    imgui.SetNextWindowSize({ 420, 500 }, ImGuiCond_FirstUseEver);
     imgui.SetNextWindowSizeConstraints({ 350, 300 }, { 600, 800 });
 
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin('Vault###trove_vault', isOpen, ImGuiWindowFlags_None) then
-        if selectedCat then
-            renderItems();
-        else
-            renderSummary();
+
+        if imgui.BeginTabBar('##vault_tabs', ImGuiTabBarFlags_None) then
+
+            if imgui.BeginTabItem('Withdraw') then
+                if selectedCat then
+                    renderItems();
+                else
+                    renderSummary();
+                end
+                imgui.EndTabItem();
+            end
+
+            if imgui.BeginTabItem('Deposit') then
+                renderDepositTab();
+                imgui.EndTabItem();
+            end
+
+            imgui.EndTabBar();
         end
+
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -472,37 +743,67 @@ return {
             return;
         end
 
-        if action == S2C_ACK and isOnCooldown() then
+        if action == S2C_ACK and pendingOp ~= nil then
             local resultCode = struct.unpack('B', e.data_modified, 0x05 + 1);
+            local opType     = struct.unpack('B', e.data_modified, 0x06 + 1);
             local msg = readString(e.data_modified, 0x10, 31);
 
-            if resultCode == 0 then
-                -- Print "Obtained: <item name>" to chat log
-                if selectedItem and items[selectedItem] then
-                    local item = items[selectedItem];
-                    local res = getItemRes(item.iconId);
-                    local name = (res and res.Name and res.Name[1]) or item.name or '???';
-                    print(string.format('\30\01Obtained: \30\02%s\30\01', name));
-                end
+            if pendingOp == 'deposit' or opType == 1 then
+                -- Deposit ACK
+                if resultCode == 0 then
+                    if depositPopupItem then
+                        print(string.format('\30\01Deposited: \30\02%s\30\01', depositPopupItem.name));
+                    end
+                    statusMsg = 'Deposited!';
+                    statusIsErr = false;
+                    statusTime = os.clock();
 
-                statusMsg = 'Withdrawn!';
-                statusIsErr = false;
-                statusTime = os.clock();
-                selectedItem = nil;
-                if selectedCat then
-                    items = {};
-                    itemsLoaded = false;
+                    -- Refresh summary counts and inventory
                     summaryLoaded = false;
                     sendVaultSummary();
-                    sendVaultCategory(selectedCat);
+                    depositItemsLoaded = false;
+                else
+                    statusMsg = msg ~= '' and msg or 'Deposit failed.';
+                    statusIsErr = true;
+                    statusTime = os.clock();
+                    operationCooldown = 0;
                 end
-            else
-                statusMsg = msg ~= '' and msg or 'Withdraw failed.';
-                statusIsErr = true;
-                statusTime = os.clock();
-                withdrawCooldown = 0;
+                pendingOp = nil;
+                return;
             end
-            return;
+
+            if pendingOp == 'withdraw' then
+                -- Withdraw ACK
+                if resultCode == 0 then
+                    if selectedItem and items[selectedItem] then
+                        local item = items[selectedItem];
+                        local res = getItemRes(item.iconId);
+                        local name = (res and res.Name and res.Name[1]) or item.name or '???';
+                        print(string.format('\30\01Obtained: \30\02%s\30\01', name));
+                    end
+
+                    statusMsg = 'Withdrawn!';
+                    statusIsErr = false;
+                    statusTime = os.clock();
+                    selectedItem = nil;
+                    if selectedCat then
+                        items = {};
+                        itemsLoaded = false;
+                        summaryLoaded = false;
+                        sendVaultSummary();
+                        sendVaultCategory(selectedCat);
+                    end
+                    -- Also invalidate deposit cache
+                    depositItemsLoaded = false;
+                else
+                    statusMsg = msg ~= '' and msg or 'Withdraw failed.';
+                    statusIsErr = true;
+                    statusTime = os.clock();
+                    operationCooldown = 0;
+                end
+                pendingOp = nil;
+                return;
+            end
         end
     end,
 };

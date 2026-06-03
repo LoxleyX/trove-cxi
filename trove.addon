@@ -1,7 +1,7 @@
 [addon]
 name=trove
 author=Loxley
-version=2.3.2
+version=2.4.0
 desc=Browse your Ephemeral Box, Currency, Points, and Squire storage in-game
 link=https://catseyexi.com
 file=trove.lua

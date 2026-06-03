@@ -49,7 +49,7 @@ local data = {
 -- Protocol
 ------------------------------------------------------------
 local PACKET_ID        = 0x1A4;
-local C2S_PLUGIN_DATA  = 16;
+local C2S_PLUGIN_DATA  = 17;
 local PLUGIN_ID        = 0; -- Lumoria
 
 local requestTime = 0;
