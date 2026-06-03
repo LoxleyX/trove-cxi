@@ -242,94 +242,113 @@ local function renderSlipDetail()
     imgui.Separator();
     imgui.Spacing();
 
-    -- Item list
+    -- Item list — flat Selectables with drawlist rendering.
+    -- No per-row child windows. Icons only loaded for visible rows to
+    -- avoid creating 200+ D3D textures at once (crash on large slips).
+    local ROW_H = 28;
+    local hoveredItem = nil;
+
+    imgui.BeginChild('##slip_detail_list', { -1, -1 }, false);
+
+    local scrollY  = imgui.GetScrollY();
+    local visibleH = imgui.GetWindowHeight();
+    local dl = imgui.GetWindowDrawList();
+
     for idx, itemId in ipairs(slip.items) do
         local isStored = stored[itemId] or false;
         local res = getItemRes(itemId);
         local name = (res and res.Name and res.Name[1]) or string.format('Item %d', itemId);
 
-        local base = ui.color('childBg');
-        local bgColor = isStored
-            and COL.stored
-            or  { base[1], base[2], base[3], (idx % 2 == 0) and 0.35 or 0.20 };
+        local rowTop = (idx - 1) * ROW_H;
+        local isVisible = (rowTop + ROW_H > scrollY) and (rowTop < scrollY + visibleH);
 
-        local rowId = string.format('##slip_item_%d_%d', slip.id, idx);
-        imgui.PushStyleColor(ImGuiCol_ChildBg, bgColor);
-        imgui.BeginChild(rowId, { -1, 28 }, false, ImGuiWindowFlags_NoScrollbar);
+        -- Invisible selectable: sizes the row and handles hover
+        imgui.SetCursorPosY(rowTop);
+        imgui.Selectable(string.format('##slipsel_%d_%d', slip.id, idx), false,
+            ImGuiSelectableFlags_SpanAllColumns, { 0, ROW_H });
+        local hovered = isVisible and imgui.IsItemHovered();
 
-        imgui.SetCursorPos({ 6, 2 });
-        if not renderIcon(itemId, 24) then
-            imgui.Dummy({ 24, 24 });
-        end
+        if isVisible then
+            local rx, ry = imgui.GetItemRectMin();
+            local rx2, ry2 = imgui.GetItemRectMax();
 
-        imgui.SameLine(34);
-        imgui.SetCursorPosY(0);
-        imgui.Selectable(string.format('##slipitemsel_%d_%d', slip.id, idx), false,
-            ImGuiSelectableFlags_SpanAllColumns, { 0, 28 });
-        local hovered = imgui.IsItemHovered();
+            -- Row background
+            local base = ui.color('childBg');
+            local bgColor = isStored
+                and COL.stored
+                or  { base[1], base[2], base[3], (idx % 2 == 0) and 0.35 or 0.20 };
+            dl:AddRectFilled({ rx, ry }, { rx2, ry2 }, imgui.GetColorU32(bgColor));
 
-        local dl = imgui.GetWindowDrawList();
-        local wx, wy = imgui.GetWindowPos();
-        local ww = imgui.GetWindowWidth();
-
-        -- Name
-        local nameCol = isStored and COL.owned or COL.unowned;
-        dl:AddText({ wx + 36, wy + 7 }, imgui.GetColorU32(nameCol), name);
-
-        -- Stored badge on right
-        if isStored then
-            local badgeText = 'Stored';
-            local badgeW = imgui.CalcTextSize(badgeText) + 8;
-            local badgeX = wx + ww - badgeW - 6;
-            local badgeY = wy + 6;
-            dl:AddRectFilled({ badgeX, badgeY }, { badgeX + badgeW, badgeY + 16 },
-                imgui.GetColorU32({ 0.10, 0.30, 0.10, 0.80 }), 3);
-            dl:AddText({ badgeX + 4, badgeY + 1 }, imgui.GetColorU32(COL.owned), badgeText);
-        end
-
-        imgui.EndChild();
-        imgui.PopStyleColor(1);
-
-        -- Tooltip
-        if hovered and res then
-            imgui.BeginTooltip();
-            imgui.PushTextWrapPos(300);
-
-            if renderIcon(itemId, 32) then
-                imgui.SameLine();
-            end
-            imgui.TextColored(ui.color('header'), name);
-            imgui.Separator();
-
-            local flags = res.Flags or 0;
-            if bit.band(flags, 0x8000) ~= 0 then
-                imgui.TextColored({ 1.00, 0.85, 0.30, 1.00 }, 'Rare');
-                imgui.SameLine();
-            end
-            if bit.band(flags, 0x4000) ~= 0 then
-                imgui.TextColored({ 0.40, 0.90, 0.40, 1.00 }, 'Ex');
+            -- Icon (rendered via imgui.Image by rewinding cursor)
+            imgui.SetCursorPosY(rowTop + 2);
+            imgui.SetCursorPosX(6);
+            if not renderIcon(itemId, 24) then
+                imgui.Dummy({ 24, 24 });
             end
 
-            if res.Description and res.Description[1] and res.Description[1] ~= '' then
-                imgui.Spacing();
-                imgui.TextColored(ui.color('dimmed'), res.Description[1]);
-            end
+            -- Name
+            local nameCol = isStored and COL.owned or COL.unowned;
+            dl:AddText({ rx + 36, ry + 7 }, imgui.GetColorU32(nameCol), name);
 
-            if res.Level and res.Level > 0 then
-                imgui.Spacing();
-                imgui.TextColored({ 0.55, 0.75, 0.55, 1.00 }, string.format('Lv.%d', res.Level));
-            end
-
-            imgui.Spacing();
+            -- Stored badge on right
             if isStored then
-                imgui.TextColored(COL.owned, 'Stored on ' .. slip.label);
-            else
-                imgui.TextColored(COL.unowned, 'Not stored');
+                local badgeText = 'Stored';
+                local badgeW = imgui.CalcTextSize(badgeText) + 8;
+                local badgeX = rx2 - badgeW - 6;
+                local badgeY = ry + 6;
+                dl:AddRectFilled({ badgeX, badgeY }, { badgeX + badgeW, badgeY + 16 },
+                    imgui.GetColorU32({ 0.10, 0.30, 0.10, 0.80 }), 3);
+                dl:AddText({ badgeX + 4, badgeY + 1 }, imgui.GetColorU32(COL.owned), badgeText);
             end
-
-            imgui.PopTextWrapPos();
-            imgui.EndTooltip();
         end
+
+        if hovered and res then
+            hoveredItem = { id = itemId, stored = isStored, res = res, name = name };
+        end
+    end
+
+    imgui.EndChild();
+
+    -- Tooltip rendered outside scroll child
+    if hoveredItem then
+        local hi = hoveredItem;
+        imgui.BeginTooltip();
+        imgui.PushTextWrapPos(300);
+
+        if renderIcon(hi.id, 32) then
+            imgui.SameLine();
+        end
+        imgui.TextColored(ui.color('header'), hi.name);
+        imgui.Separator();
+
+        local flags = hi.res.Flags or 0;
+        if bit.band(flags, 0x8000) ~= 0 then
+            imgui.TextColored({ 1.00, 0.85, 0.30, 1.00 }, 'Rare');
+            imgui.SameLine();
+        end
+        if bit.band(flags, 0x4000) ~= 0 then
+            imgui.TextColored({ 0.40, 0.90, 0.40, 1.00 }, 'Ex');
+        end
+
+        if hi.res.Description and hi.res.Description[1] and hi.res.Description[1] ~= '' then
+            imgui.Spacing();
+            imgui.TextColored(ui.color('dimmed'), hi.res.Description[1]);
+        end
+
+        if hi.res.Level and hi.res.Level > 0 then
+            imgui.Spacing();
+            imgui.TextColored({ 0.55, 0.75, 0.55, 1.00 }, string.format('Lv.%d', hi.res.Level));
+        end
+
+        imgui.Spacing();
+        if hi.stored then
+            imgui.TextColored(COL.owned, 'Stored on ' .. slip.label);
+        else
+            imgui.TextColored(COL.unowned, 'Not stored');
+        end
+
+        imgui.PopTextWrapPos();
+        imgui.EndTooltip();
     end
 end
 
