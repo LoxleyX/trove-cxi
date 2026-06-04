@@ -242,10 +242,10 @@ local function renderSlipDetail()
     imgui.Separator();
     imgui.Spacing();
 
-    -- Item list — flat Selectables with drawlist rendering.
-    -- No per-row child windows. Icons only loaded for visible rows to
-    -- avoid creating 200+ D3D textures at once (crash on large slips).
-    local ROW_H = 28;
+    -- Item list — text-only rows, no D3D textures per row.
+    -- Icons are shown only in the tooltip (one at a time) to avoid
+    -- bulk texture creation that crashes on slips with 200+ items.
+    local ROW_H = 22;
     local hoveredItem = nil;
 
     imgui.BeginChild('##slip_detail_list', { -1, -1 }, false);
@@ -255,20 +255,20 @@ local function renderSlipDetail()
     local dl = imgui.GetWindowDrawList();
 
     for idx, itemId in ipairs(slip.items) do
-        local isStored = stored[itemId] or false;
-        local res = getItemRes(itemId);
-        local name = (res and res.Name and res.Name[1]) or string.format('Item %d', itemId);
-
         local rowTop = (idx - 1) * ROW_H;
         local isVisible = (rowTop + ROW_H > scrollY) and (rowTop < scrollY + visibleH);
 
-        -- Invisible selectable: sizes the row and handles hover
+        -- Selectable sizes the row and handles hover
         imgui.SetCursorPosY(rowTop);
         imgui.Selectable(string.format('##slipsel_%d_%d', slip.id, idx), false,
             ImGuiSelectableFlags_SpanAllColumns, { 0, ROW_H });
-        local hovered = isVisible and imgui.IsItemHovered();
 
         if isVisible then
+            local isStored = stored[itemId] or false;
+            local res = getItemRes(itemId);
+            local name = (res and res.Name and res.Name[1]) or string.format('Item %d', itemId);
+            local hovered = imgui.IsItemHovered();
+
             local rx, ry = imgui.GetItemRectMin();
             local rx2, ry2 = imgui.GetItemRectMax();
 
@@ -279,31 +279,33 @@ local function renderSlipDetail()
                 or  { base[1], base[2], base[3], (idx % 2 == 0) and 0.35 or 0.20 };
             dl:AddRectFilled({ rx, ry }, { rx2, ry2 }, imgui.GetColorU32(bgColor));
 
-            -- Icon (rendered via imgui.Image by rewinding cursor)
-            imgui.SetCursorPosY(rowTop + 2);
-            imgui.SetCursorPosX(6);
-            if not renderIcon(itemId, 24) then
-                imgui.Dummy({ 24, 24 });
+            -- Stored dot on left
+            if isStored then
+                dl:AddCircleFilled({ rx + 10, ry + ROW_H / 2 }, 4,
+                    imgui.GetColorU32(COL.owned));
+            else
+                dl:AddCircle({ rx + 10, ry + ROW_H / 2 }, 4,
+                    imgui.GetColorU32(COL.unowned), 12);
             end
 
             -- Name
             local nameCol = isStored and COL.owned or COL.unowned;
-            dl:AddText({ rx + 36, ry + 7 }, imgui.GetColorU32(nameCol), name);
+            dl:AddText({ rx + 22, ry + 4 }, imgui.GetColorU32(nameCol), name);
 
             -- Stored badge on right
             if isStored then
                 local badgeText = 'Stored';
                 local badgeW = imgui.CalcTextSize(badgeText) + 8;
                 local badgeX = rx2 - badgeW - 6;
-                local badgeY = ry + 6;
+                local badgeY = ry + 3;
                 dl:AddRectFilled({ badgeX, badgeY }, { badgeX + badgeW, badgeY + 16 },
                     imgui.GetColorU32({ 0.10, 0.30, 0.10, 0.80 }), 3);
                 dl:AddText({ badgeX + 4, badgeY + 1 }, imgui.GetColorU32(COL.owned), badgeText);
             end
-        end
 
-        if hovered and res then
-            hoveredItem = { id = itemId, stored = isStored, res = res, name = name };
+            if hovered and res then
+                hoveredItem = { id = itemId, stored = isStored, res = res, name = name };
+            end
         end
     end
 
