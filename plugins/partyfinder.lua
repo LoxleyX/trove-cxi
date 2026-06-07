@@ -672,36 +672,43 @@ local function renderListingTab(listingType)
     imgui.Spacing();
 
     -- Listings
+    imgui.PushStyleColor(ImGuiCol_ChildBg, ui.color('windowBg'));
+    imgui.BeginChild('##pf_listings', { -1, -1 }, false);
+
     if #filtered == 0 then
         imgui.Spacing();
         ui.dim(listingType == 1 and 'No players looking for group.' or 'No groups recruiting.');
     else
-        imgui.BeginChild('##pf_listings', { -1, -1 }, false);
         for _, f in ipairs(filtered) do
             renderEntryCard(f.idx, f.entry);
             imgui.Spacing();
         end
-        imgui.EndChild();
     end
+
+    imgui.EndChild();
+    imgui.PopStyleColor(1);
 end
 
 ------------------------------------------------------------
 -- Render: Activity tab
 ------------------------------------------------------------
 local function renderActivityTab()
+    imgui.PushStyleColor(ImGuiCol_ChildBg, ui.color('windowBg'));
+    imgui.BeginChild('##pf_activity', { -1, -1 }, false);
+
     if #activityLog == 0 then
         ui.dim('No activity yet.');
-        return;
+    else
+        for i = #activityLog, 1, -1 do
+            local entry = activityLog[i];
+            imgui.TextColored({ 0.5, 0.5, 0.5, 1.0 }, entry.time);
+            imgui.SameLine(0, 8);
+            imgui.TextWrapped(entry.text);
+        end
     end
 
-    imgui.BeginChild('##pf_activity', { -1, -1 }, false);
-    for i = #activityLog, 1, -1 do
-        local entry = activityLog[i];
-        imgui.TextColored({ 0.5, 0.5, 0.5, 1.0 }, entry.time);
-        imgui.SameLine(0, 8);
-        imgui.TextWrapped(entry.text);
-    end
     imgui.EndChild();
+    imgui.PopStyleColor(1);
 end
 
 ------------------------------------------------------------
