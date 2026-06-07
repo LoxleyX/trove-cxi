@@ -532,12 +532,19 @@ local function renderRelicCard(relic, index, cardW)
     imgui.SetCursorPos({ nameX, barY });
 
     if not isComplete then
+        -- Sort currency bars by required amount (smallest first)
+        local sortedBars = {};
         for _, cType in ipairs({ 'BYNE', 'SHELL', 'BRONZE' }) do
             local amt = needed[cType];
             if amt and amt > 0 then
-                imgui.SetCursorPosX(nameX);
-                renderProgressBar(CURRENCY[cType], currencyHave[cType], amt, barW);
+                sortedBars[#sortedBars + 1] = { type = cType, amount = amt };
             end
+        end
+        table.sort(sortedBars, function(a, b) return a.amount < b.amount; end);
+
+        for _, bar in ipairs(sortedBars) do
+            imgui.SetCursorPosX(nameX);
+            renderProgressBar(CURRENCY[bar.type], currencyHave[bar.type], bar.amount, barW);
         end
     end
 
