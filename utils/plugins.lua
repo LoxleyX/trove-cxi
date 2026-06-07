@@ -89,11 +89,11 @@ end
 -- Initialize all plugins with shared functions
 -- Passes: renderIcon, getItemRes, ui (theme helper module)
 ------------------------------------------------------------
-plugins.initAll = function(renderIcon, getItemRes, renderTooltip)
+plugins.initAll = function(renderIcon, getItemRes, renderTooltip, renderFileIcon)
     local ui = require('utils/ui');
     for _, entry in ipairs(loaded) do
         if entry.plugin.init then
-            local ok, err = pcall(entry.plugin.init, renderIcon, getItemRes, ui, renderTooltip);
+            local ok, err = pcall(entry.plugin.init, renderIcon, getItemRes, ui, renderTooltip, renderFileIcon);
             if not ok then
                 print(string.format('[trove] Plugin %s init error: %s', entry.plugin.name, tostring(err)));
             end
@@ -166,6 +166,18 @@ plugins.onRender = function(state)
 end
 
 ------------------------------------------------------------
+-- Dispatch text_in to plugins that handle it
+------------------------------------------------------------
+plugins.onTextIn = function(e, state)
+    for _, entry in ipairs(loaded) do
+        if entry.plugin.onTextIn then
+            pcall(entry.plugin.onTextIn, e, state);
+            if e.blocked then return; end
+        end
+    end
+end
+
+------------------------------------------------------------
 -- Get menu entries for UI (includes both menu actions and
 -- window toggles from plugins with windows)
 ------------------------------------------------------------
@@ -186,14 +198,49 @@ plugins.getMenuEntries = function()
 end
 
 ------------------------------------------------------------
+-- Query status strips from plugins (for persistent status bar)
+------------------------------------------------------------
+plugins.getStatusStrips = function()
+    local strips = {};
+    for _, entry in ipairs(loaded) do
+        if entry.plugin.getStatus then
+            local ok, status = pcall(entry.plugin.getStatus);
+            if ok and status then
+                strips[#strips + 1] = status;
+            end
+        end
+    end
+    return strips;
+end
+
+------------------------------------------------------------
 -- Render plugin tabs inside the main tab bar.
 -- Called from trove.lua after built-in tabs.
 ------------------------------------------------------------
+-- Render priority plugin tabs (tab.priority = true) — called early in tab order
+plugins.renderPriorityTabs = function(state)
+    for _, entry in ipairs(loaded) do
+        if entry.plugin.tab and entry.plugin.tab.priority then
+            local tab = entry.plugin.tab;
+            local label = (tab.getLabel and tab.getLabel()) or tab.label;
+            if imgui.BeginTabItem(label) then
+                local ok, err = pcall(tab.render, state);
+                if not ok then
+                    imgui.TextColored({ 1, 0.3, 0.3, 1 }, 'Plugin error: ' .. tostring(err));
+                end
+                imgui.EndTabItem();
+            end
+        end
+    end
+end
+
+-- Render normal plugin tabs (non-priority) — called after built-in tabs
 plugins.renderTabs = function(state)
     for _, entry in ipairs(loaded) do
-        if entry.plugin.tab then
+        if entry.plugin.tab and not entry.plugin.tab.priority then
             local tab = entry.plugin.tab;
-            if imgui.BeginTabItem(tab.label) then
+            local label = (tab.getLabel and tab.getLabel()) or tab.label;
+            if imgui.BeginTabItem(label) then
                 local ok, err = pcall(tab.render, state);
                 if not ok then
                     imgui.TextColored({ 1, 0.3, 0.3, 1 }, 'Plugin error: ' .. tostring(err));

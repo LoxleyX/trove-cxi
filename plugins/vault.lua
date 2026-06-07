@@ -241,7 +241,7 @@ local function renderSummary()
         return;
     end
 
-    if ui.button('Refresh', 60, 22) then
+    if ui.button('Refresh', 0, 22) then
         summaryLoaded = false;
         sendVaultSummary();
     end
@@ -274,7 +274,7 @@ end
 -- Render: Item list view (Withdraw tab)
 ------------------------------------------------------------
 local function renderItems()
-    if ui.button('< Back', 55, 22) then
+    if ui.button('< Back', 0, 22) then
         selectedCat = nil;
         selectedItem = nil;
         items = {};
@@ -288,8 +288,8 @@ local function renderItems()
     ui.dim(string.format('(%d)', #items));
 
     -- Refresh
-    imgui.SameLine(imgui.GetWindowWidth() - 80);
-    if ui.button('Refresh', 60, 22) then
+    imgui.SameLine(imgui.GetWindowWidth() - 72);
+    if ui.button('Refresh', 0, 22) then
         items = {};
         itemsLoaded = false;
         selectedItem = nil;
@@ -409,7 +409,7 @@ local function renderItems()
             imgui.PushStyleVar(ImGuiStyleVar_Alpha, 0.35);
         end
 
-        if ui.button('Withdraw', 72, 26) and canWithdraw then
+        if ui.button('Withdraw', 0, 26) and canWithdraw then
             sendVaultWithdraw(item.locId, item.slotId);
         end
 
@@ -465,7 +465,7 @@ local function renderDepositTab()
     end
 
     -- Header row: Refresh + zone warning
-    if ui.button('Refresh', 60, 22) then
+    if ui.button('Refresh', 0, 22) then
         scanInventory();
         summaryLoaded = false;
         sendVaultSummary();

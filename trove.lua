@@ -20,7 +20,7 @@
 
 addon.name      = 'trove';
 addon.author    = 'Loxley';
-addon.version   = '2.4.1';
+addon.version   = '3.0.0';
 addon.desc      = 'Browse Ephemeral Box, Currency, Points, and Squire in-game';
 
 require('common');
@@ -176,6 +176,16 @@ local JOB_ABBR = {
     'WAR','MNK','WHM','BLM','RDM','THF','PLD','DRK','BST','BRD',
     'RNG','SAM','NIN','DRG','SMN','BLU','COR','PUP','DNC','SCH',
     'GEO','RUN',
+};
+
+-- AF headpiece item IDs per job (for job icon display)
+local JOB_ICON_ITEMS = {
+    [1]  = 12511, [2]  = 12512, [3]  = 13855, [4]  = 13856,
+    [5]  = 12513, [6]  = 12514, [7]  = 12515, [8]  = 12516,
+    [9]  = 12517, [10] = 13857, [11] = 12518, [12] = 13868,
+    [13] = 13869, [14] = 12519, [15] = 12520, [16] = 11465,
+    [17] = 15266, [18] = 11471, [19] = 11478, [20] = 16140,
+    [21] = 27786, [22] = 27787,
 };
 
 local SLOT_NAMES = {
@@ -961,6 +971,12 @@ ashita.events.register('packet_in', 'trove_inv_watch', function(e)
     end
 end);
 
+ashita.events.register('text_in', 'trove_text_in', function(e)
+    if trove_plugins and trove_plugins.onTextIn then
+        trove_plugins.onTextIn(e, state);
+    end
+end);
+
 ashita.events.register('packet_in', 'trove_plugin_packets', function(e)
     if trove_plugins and trove_plugins.onPacketIn then
         local ok, err = pcall(trove_plugins.onPacketIn, e, state);
@@ -1363,9 +1379,20 @@ end
 -- Forward declaration (defined below, needed by initPlugins)
 local renderTooltip;
 
+-- Render a file-based texture from images/ directory
+local function renderFileIcon(filename, size)
+    local tex = loadFileTexture(filename);
+    local handle = textureHandles[filename];
+    if tex and tex ~= false and handle ~= nil then
+        imgui.Image(handle, { size, size });
+        return true;
+    end
+    return false;
+end
+
 -- Inject shared functions into plugins after they load
 local function initPlugins()
-    trove_plugins.initAll(renderIcon, getItemRes, renderTooltip);
+    trove_plugins.initAll(renderIcon, getItemRes, renderTooltip, renderFileIcon);
 end
 
 local function renderBadges(flags)
@@ -1601,28 +1628,51 @@ local function renderCategoryButton(entry, col)
     local btnId = string.format('##catbtn_%d', entry.ahCat);
     local rowWidth = imgui.GetContentRegionAvail();
     local btnW = (rowWidth - 6) / 2;
+    local btnH = 42;
 
-    if col == 2 then imgui.SameLine(0, 4); end
+    if col == 2 then imgui.SameLine(0, 6); end
 
-    imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.catBtnBg);
-    imgui.BeginChild(btnId, { btnW, 34 }, false);
+    local bg = COLORS.catBtnBg;
+    local bgColor = { bg[1], bg[2], bg[3], 0.65 };
+
+    imgui.PushStyleColor(ImGuiCol_ChildBg, bgColor);
+    imgui.BeginChild(btnId, { btnW, btnH }, false);
 
     local dl = imgui.GetWindowDrawList();
     local wx, wy = imgui.GetWindowPos();
-    dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 34 }, imgui.GetColorU32(COLORS.accent));
+    local ww = imgui.GetWindowWidth();
+
+    -- Accent bar
+    dl:AddRectFilled({ wx, wy }, { wx + 3, wy + btnH }, imgui.GetColorU32(COLORS.accent));
 
     imgui.SetCursorPosY(0);
     if imgui.Selectable(string.format('##catsel_%d', entry.ahCat), false,
-        ImGuiSelectableFlags_SpanAllColumns, { 0, 34 }) then
+        ImGuiSelectableFlags_SpanAllColumns, { 0, btnH }) then
         goToCategory(entry.ahCat);
     end
 
-    dl:AddText({ wx + 10, wy + 5 }, imgui.GetColorU32(COLORS.category), name);
-    dl:AddText({ wx + 10, wy + 19 }, imgui.GetColorU32(COLORS.dimmed),
-        string.format('%d items  |  %s qty', entry.count, addCommas(entry.totalQty)));
+    -- Hover highlight
+    if imgui.IsItemHovered() then
+        dl:AddRectFilled({ wx + 3, wy }, { wx + ww, wy + btnH },
+            imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.04 }));
+    end
+
+    -- Category name
+    dl:AddText({ wx + 12, wy + 6 }, imgui.GetColorU32(COLORS.category), name);
+
+    -- Item count + qty on second line
+    local countStr = string.format('%d items', entry.count);
+    dl:AddText({ wx + 12, wy + 22 }, imgui.GetColorU32(COLORS.dimmed), countStr);
+
+    -- Total qty badge on right
+    local qtyStr = addCommas(entry.totalQty);
+    local qtyW = imgui.CalcTextSize(qtyStr);
+    dl:AddText({ wx + ww - qtyW - 10, wy + 14 },
+        imgui.GetColorU32(COLORS.qty), qtyStr);
 
     imgui.EndChild();
     imgui.PopStyleColor(1);
+    if col == 2 then imgui.Spacing(); end
 end
 
 local function renderSelectionPanel()
@@ -1967,19 +2017,47 @@ local function renderCurrencyTab()
             imgui.TextColored(COLORS.empty, 'No currency to display.');
         end
     else
-        for _, sectionName in ipairs(sectionOrder) do
+        -- Section accent colors (same palette as points tab)
+        local sectionAccents = {
+            { 0.55, 0.75, 1.00, 1.00 },  -- blue
+            { 0.65, 0.48, 0.92, 1.00 },  -- purple
+            { 0.50, 0.88, 0.50, 1.00 },  -- green
+            { 1.00, 0.78, 0.35, 1.00 },  -- amber
+            { 0.90, 0.50, 0.50, 1.00 },  -- red
+            { 0.50, 0.85, 0.85, 1.00 },  -- teal
+            { 0.85, 0.65, 0.90, 1.00 },  -- pink
+            { 0.75, 0.80, 0.50, 1.00 },  -- olive
+        };
+
+        for si, sectionName in ipairs(sectionOrder) do
+            local accent = sectionAccents[((si - 1) % #sectionAccents) + 1];
+            local accentDim = { accent[1] * 0.35, accent[2] * 0.35, accent[3] * 0.35, 0.85 };
+
             -- Section header
-            imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.headerBg);
+            imgui.PushStyleColor(ImGuiCol_ChildBg, accentDim);
             local hdrId = string.format('##cursec_%s', sectionName);
-            imgui.BeginChild(hdrId, { -1, 20 }, false);
+            imgui.BeginChild(hdrId, { -1, 24 }, false);
             local dl = imgui.GetWindowDrawList();
             local wx, wy = imgui.GetWindowPos();
-            dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 20 }, imgui.GetColorU32(COLORS.accent));
-            imgui.SetCursorPosX(10);
-            imgui.SetCursorPosY(2);
-            imgui.TextColored(COLORS.category, sectionName);
+            local ww = imgui.GetWindowWidth();
+            dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 24 }, imgui.GetColorU32(accent));
+            dl:AddLine({ wx, wy + 23 }, { wx + ww, wy + 23 },
+                imgui.GetColorU32({ accent[1], accent[2], accent[3], 0.15 }));
+            imgui.SetCursorPosX(12);
+            imgui.SetCursorPosY(4);
+            imgui.TextColored(accent, sectionName);
+
+            local countStr = string.format('%d', #sections[sectionName]);
+            local cw = imgui.CalcTextSize(countStr);
+            imgui.SameLine(ww - cw - 12);
+            imgui.SetCursorPosY(4);
+            imgui.TextColored({ accent[1], accent[2], accent[3], 0.50 }, countStr);
+
             imgui.EndChild();
             imgui.PopStyleColor(1);
+
+            -- Value color tinted by section accent
+            local valColor = { accent[1] * 0.7 + 0.3, accent[2] * 0.7 + 0.3, accent[3] * 0.7 + 0.3, 1.0 };
 
             -- Entries
             for i, entry in ipairs(sections[sectionName]) do
@@ -2008,8 +2086,8 @@ local function renderCurrencyTab()
 
                 local totalStr = addCommas(entry.total);
                 local tw2 = imgui.CalcTextSize(totalStr);
-                dl2:AddText({ wx2 + ww2 - tw2 - 8, wy2 + 8 },
-                    imgui.GetColorU32(COLORS.currencyTotal), totalStr);
+                dl2:AddText({ wx2 + ww2 - tw2 - 10, wy2 + 8 },
+                    imgui.GetColorU32(valColor), totalStr);
 
                 imgui.EndChild();
                 imgui.PopStyleColor(1);
@@ -2065,18 +2143,48 @@ local function renderPointsTab()
             imgui.TextColored(COLORS.empty, 'No points to display.');
         end
     else
-        for _, groupName in ipairs(groupOrder) do
-            imgui.PushStyleColor(ImGuiCol_ChildBg, COLORS.headerBg);
+        -- Group accent colors (cycle through these for visual variety)
+        local groupAccents = {
+            { 0.55, 0.75, 1.00, 1.00 },  -- blue
+            { 0.65, 0.48, 0.92, 1.00 },  -- purple
+            { 0.50, 0.88, 0.50, 1.00 },  -- green
+            { 1.00, 0.78, 0.35, 1.00 },  -- amber
+            { 0.90, 0.50, 0.50, 1.00 },  -- red
+            { 0.50, 0.85, 0.85, 1.00 },  -- teal
+            { 0.85, 0.65, 0.90, 1.00 },  -- pink
+            { 0.75, 0.80, 0.50, 1.00 },  -- olive
+        };
+
+        for gi, groupName in ipairs(groupOrder) do
+            local accent = groupAccents[((gi - 1) % #groupAccents) + 1];
+            local accentDim = { accent[1] * 0.35, accent[2] * 0.35, accent[3] * 0.35, 0.85 };
+
+            -- Group header
+            imgui.PushStyleColor(ImGuiCol_ChildBg, accentDim);
             local hdrId = string.format('##ptgrp_%s', groupName);
-            imgui.BeginChild(hdrId, { -1, 20 }, false);
+            imgui.BeginChild(hdrId, { -1, 24 }, false);
             local dl = imgui.GetWindowDrawList();
             local wx, wy = imgui.GetWindowPos();
-            dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 20 }, imgui.GetColorU32(COLORS.accent));
-            imgui.SetCursorPosX(10);
-            imgui.SetCursorPosY(2);
-            imgui.TextColored(COLORS.pointsGroup, groupName);
+            local ww = imgui.GetWindowWidth();
+            dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 24 }, imgui.GetColorU32(accent));
+            dl:AddLine({ wx, wy + 23 }, { wx + ww, wy + 23 },
+                imgui.GetColorU32({ accent[1], accent[2], accent[3], 0.15 }));
+            imgui.SetCursorPosX(12);
+            imgui.SetCursorPosY(4);
+            imgui.TextColored(accent, groupName);
+
+            -- Entry count on right
+            local countStr = string.format('%d', #groups[groupName]);
+            local cw = imgui.CalcTextSize(countStr);
+            imgui.SameLine(ww - cw - 12);
+            imgui.SetCursorPosY(4);
+            imgui.TextColored({ accent[1], accent[2], accent[3], 0.50 }, countStr);
+
             imgui.EndChild();
             imgui.PopStyleColor(1);
+
+            -- Value color tinted by group accent
+            local valColor = { accent[1] * 0.7 + 0.3, accent[2] * 0.7 + 0.3, accent[3] * 0.7 + 0.3, 1.0 };
 
             for i, entry in ipairs(groups[groupName]) do
                 local rowId = string.format('##ptrow_%s_%d', groupName, i);
@@ -2084,18 +2192,18 @@ local function renderPointsTab()
                 local bg = getRowBg(isAlt);
 
                 imgui.PushStyleColor(ImGuiCol_ChildBg, bg);
-                imgui.BeginChild(rowId, { -1, 22 }, false);
+                imgui.BeginChild(rowId, { -1, 24 }, false);
 
                 local dl2 = imgui.GetWindowDrawList();
                 local wx2, wy2 = imgui.GetWindowPos();
                 local ww2 = imgui.GetWindowWidth();
 
-                dl2:AddText({ wx2 + 10, wy2 + 4 }, imgui.GetColorU32(COLORS.pointsLabel), entry.label);
+                dl2:AddText({ wx2 + 12, wy2 + 5 }, imgui.GetColorU32(COLORS.pointsLabel), entry.label);
 
                 local vstr = addCommas(entry.value);
                 local tw2 = imgui.CalcTextSize(vstr);
-                dl2:AddText({ wx2 + ww2 - tw2 - 10, wy2 + 4 },
-                    imgui.GetColorU32(COLORS.pointsValue), vstr);
+                dl2:AddText({ wx2 + ww2 - tw2 - 12, wy2 + 5 },
+                    imgui.GetColorU32(valColor), vstr);
 
                 imgui.EndChild();
                 imgui.PopStyleColor(1);
@@ -2923,7 +3031,129 @@ local function renderWindow()
 
     if imgui.Begin('Trove', ui.isOpen, ImGuiWindowFlags_None) then
 
-        if imgui.BeginTabBar('##trove_tabs', ImGuiTabBarFlags_None) then
+        -- Top bar: left = context info, right = burger + settings
+        local ww = imgui.GetWindowWidth();
+        local dl = imgui.GetWindowDrawList();
+
+        -- VNM alert button (conditional — only shows when a VNM is active)
+        local vnmPlugin = nil;
+        local winPlugins = trove_plugins.getWindowPlugins();
+        for _, plugin in ipairs(winPlugins) do
+            if plugin.name and plugin.name:find('VNM') and plugin.hasAlert and plugin.hasAlert() then
+                vnmPlugin = plugin;
+                break;
+            end
+        end
+
+        -- Right: Menu button (purple tint, amber on alert)
+        local menuW = imgui.CalcTextSize('Menu') + 18;
+        local rightX = ww - menuW - 12;
+
+        if vnmPlugin then
+            local vnmW = imgui.CalcTextSize('VNM') + 18;
+            rightX = rightX - vnmW - 4;
+            imgui.SameLine(rightX);
+            imgui.PushStyleColor(ImGuiCol_Button, { 0.35, 0.25, 0.10, 0.90 });
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.48, 0.35, 0.15, 0.95 });
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, { 0.55, 0.42, 0.20, 1.00 });
+            imgui.PushStyleColor(ImGuiCol_Text, { 1.00, 0.85, 0.30, 1.00 });
+            if imgui.Button('VNM##trove_vnm_alert', { vnmW, 22 }) then
+                vnmPlugin.window.isOpen[1] = not vnmPlugin.window.isOpen[1];
+            end
+            imgui.PopStyleColor(4);
+        end
+
+        imgui.SameLine(ww - menuW - 12);
+        imgui.PushStyleColor(ImGuiCol_Button, { 0.25, 0.18, 0.35, 0.90 });
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.35, 0.26, 0.48, 0.95 });
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, { 0.42, 0.34, 0.58, 1.00 });
+        if imgui.Button('Menu##trove_menu', { menuW, 22 }) then
+            imgui.OpenPopup('##trove_plugins_menu');
+        end
+        imgui.PopStyleColor(3);
+
+        -- Left side: PF status strip OR job/level
+        imgui.SameLine(8);
+        imgui.SetCursorPosY(imgui.GetCursorPosY());
+        local strips = trove_plugins.getStatusStrips();
+        if #strips > 0 then
+            local status = strips[1];
+            local text;
+            if status.partySize then
+                text = string.format('%s: %s (%d/6) - %s',
+                    status.typeStr or 'LFM', status.catName or '', status.partySize, status.countLabel or '');
+            else
+                text = string.format('%s: %s - %s',
+                    status.typeStr or 'LFG', status.catName or '', status.countLabel or '');
+            end
+            -- Green dot
+            local cx, cy = imgui.GetCursorScreenPos();
+            dl:AddCircleFilled({ cx + 2, cy + 7 }, 3,
+                imgui.GetColorU32({ 0.40, 0.90, 0.40, 1.0 }));
+            imgui.SetCursorPosX(18);
+            imgui.TextColored({ 0.60, 0.90, 0.60, 1.0 }, text);
+        else
+            -- Show job icon + job/level when not registered
+            local ok, jobId, jobInfo = pcall(function()
+                local p = AshitaCore:GetMemoryManager():GetPlayer();
+                local jId = p:GetMainJob();
+                local jobLv = p:GetMainJobLevel();
+                local subId = p:GetSubJob();
+                local subLv = p:GetSubJobLevel();
+                local jobStr = (JOB_ABBR[jId] or '???') .. jobLv;
+                if subId and subId > 0 then
+                    jobStr = jobStr .. '/' .. (JOB_ABBR[subId] or '???') .. subLv;
+                end
+                return jId, jobStr;
+            end);
+            if ok and jobInfo then
+                local iconItemId = JOB_ICON_ITEMS[jobId];
+                if iconItemId then
+                    renderIcon(iconItemId, 32);
+                    imgui.SameLine(0, 6);
+                end
+                imgui.SetCursorPosY(imgui.GetCursorPosY() + 8);
+                imgui.TextColored({ 0.55, 0.55, 0.60, 1.0 }, jobInfo);
+            end
+        end
+
+        -- Burger menu popup
+        if imgui.BeginPopup('##trove_plugins_menu') then
+            local winPlugins = trove_plugins.getWindowPlugins();
+            for _, plugin in ipairs(winPlugins) do
+                local win = plugin.window;
+                if not (win.cwOnly and not state.isCrystalWarrior) then
+                    if win.separator or plugin._menuSeparator then imgui.Separator(); end
+                    if win.icon then renderIcon(win.icon, 16); imgui.SameLine(0, 6); end
+                    local label = win.label or plugin.name;
+                    if plugin.hasAlert and plugin.hasAlert() then label = label .. ' (!)'; end
+                    if imgui.Selectable(label, win.isOpen[1]) then
+                        win.isOpen[1] = not win.isOpen[1];
+                    end
+                end
+            end
+
+            local menuEntries = trove_plugins.getMenuEntries();
+            local hasActions = false;
+            for _, entry in ipairs(menuEntries) do
+                if not (entry.label and entry.label:find('Settings')) then
+                    hasActions = true; break;
+                end
+            end
+            if hasActions then
+                imgui.Separator();
+                for _, entry in ipairs(menuEntries) do
+                    if not (entry.label and entry.label:find('Settings')) then
+                        if imgui.Selectable(entry.label) then
+                            entry.action(state);
+                        end
+                    end
+                end
+            end
+            imgui.EndPopup();
+        end
+
+        if imgui.BeginTabBar('##trove_tabs', bit.bor(ImGuiTabBarFlags_FittingPolicyScroll, ImGuiTabBarFlags_TabListPopupButton)) then
             -- E.Box tab (only for Crystal Warriors + visible)
             if state.isCrystalWarrior and tabVisibility.ebox then
                 if imgui.BeginTabItem('Box') then
@@ -2932,6 +3162,9 @@ local function renderWindow()
                     imgui.EndTabItem();
                 end
             end
+
+            -- Priority plugin tabs (e.g. Party Finder — rendered 2nd)
+            trove_plugins.renderPriorityTabs(state);
 
             if tabVisibility.currency then
                 if imgui.BeginTabItem('Currency') then
@@ -2971,59 +3204,7 @@ local function renderWindow()
             imgui.EndTabBar();
         end
 
-        -- Burger menu button (absolute positioned top-right, above tab content)
-        local btnLabel = trove_plugins.hasAlert() and '!' or '=';
-        imgui.SetCursorPos({ imgui.GetWindowWidth() - 28, 34 });
-        if imgui.SmallButton(btnLabel) then
-            imgui.OpenPopup('##trove_panels');
-        end
-        if imgui.BeginPopup('##trove_panels') then
-            -- Render window toggles from plugins
-            local winPlugins = trove_plugins.getWindowPlugins();
-            for _, plugin in ipairs(winPlugins) do
-                local win = plugin.window;
-                -- Skip CW-only windows if not a Crystal Warrior
-                if win.cwOnly and not state.isCrystalWarrior then
-                    -- skip
-                else
-                    if win.separator or plugin._menuSeparator then imgui.Separator(); end
-                    if win.icon then renderIcon(win.icon, 16); imgui.SameLine(0, 6); end
-                    local label = win.label or plugin.name;
-                    if plugin.hasAlert and plugin.hasAlert() then label = label .. ' (!)'; end
-                    if imgui.Selectable(label, win.isOpen[1]) then
-                        win.isOpen[1] = not win.isOpen[1];
-                    end
-                end
-            end
-
-            -- Render plugin menu actions (non-bottom only; bottom ones are already in the window list)
-            local menuEntries = trove_plugins.getMenuEntries();
-            local hasNonBottom = false;
-            for _, entry in ipairs(menuEntries) do
-                if not entry.bottom then hasNonBottom = true; break; end
-            end
-            if hasNonBottom then
-                imgui.Separator();
-                for _, entry in ipairs(menuEntries) do
-                    if not entry.bottom then
-                        if imgui.Selectable(entry.label) then
-                            entry.action(state);
-                        end
-                    end
-                end
-            end
-
-            -- Bottom menu entries (after the bottom window plugins)
-            for _, entry in ipairs(menuEntries) do
-                if entry.bottom then
-                    if imgui.Selectable(entry.label) then
-                        entry.action(state);
-                    end
-                end
-            end
-
-            imgui.EndPopup();
-        end
+        -- (Menu bar is above the tab bar now)
     end
     imgui.End();
     imgui.PopStyleColor(14);

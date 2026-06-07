@@ -138,14 +138,15 @@ ui.badge = function(text, fgColor, bgColor)
     if bgColor then
         local pos = imgui.GetCursorScreenPos();
         local textSize = imgui.CalcTextSize(text);
-        local padding = 4;
+        local padX = 5;
+        local padY = 2;
         local dl = imgui.GetWindowDrawList();
         local bg = ui.color(bgColor);
         local bgU32 = imgui.ColorConvertFloat4ToU32(bg);
         dl:AddRectFilled(
-            { pos[1] - 2, pos[2] - 1 },
-            { pos[1] + textSize[1] + padding, pos[2] + textSize[2] + 1 },
-            bgU32, 2.0
+            { pos[1] - padX + 2, pos[2] - padY },
+            { pos[1] + textSize[1] + padX, pos[2] + textSize[2] + padY },
+            bgU32, 3.0
         );
     end
     imgui.TextColored(ui.color(fgColor or 'white'), text);
@@ -161,33 +162,45 @@ end
 -- Button helpers
 ------------------------------------------------------------
 
--- Themed button. style = 'primary', 'feature', 'positive', 'back', or nil for default.
+-- Themed button.
+-- Calling conventions:
+--   ui.button(label)                    — auto-sized, themed
+--   ui.button(label, width, height)     — sized, themed (most common)
+--   ui.button(label, 'primary')         — auto-sized, named style
+--   ui.button(label, 'primary', {w,h})  — sized, named style
+-- Named styles: 'primary', 'feature', 'positive', 'back'
 -- Returns true if clicked.
-ui.button = function(label, style, size)
-    local colors = {};
-    if style == 'primary' then
-        colors = { 'btnPrimary', 'btnPrimaryHover', 'btnPrimaryActive' };
-    elseif style == 'feature' then
-        colors = { 'btnFeature', 'btnFeatureHover', 'btnFeatureActive' };
-    elseif style == 'positive' then
-        colors = { 'btnPositive', 'btnPositiveHover', 'btnPositiveActive' };
-    elseif style == 'back' then
-        colors = { 'btnBack', 'btnBackHover', 'btnBackActive' };
+ui.button = function(label, styleOrWidth, sizeOrHeight)
+    local styleName = nil;
+    local btnSize   = { 0, 0 };
+
+    -- Detect calling convention
+    if type(styleOrWidth) == 'number' then
+        -- ui.button(label, width, height)
+        btnSize = { styleOrWidth, sizeOrHeight or 0 };
+    elseif type(styleOrWidth) == 'string' then
+        -- ui.button(label, 'style', size)
+        styleName = styleOrWidth;
+        if type(sizeOrHeight) == 'table' then btnSize = sizeOrHeight; end
     end
 
-    local pushed = 0;
-    if #colors == 3 then
-        imgui.PushStyleColor(ImGuiCol_Button, ui.color(colors[1]));
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, ui.color(colors[2]));
-        imgui.PushStyleColor(ImGuiCol_ButtonActive, ui.color(colors[3]));
-        pushed = 3;
-    end
+    local styleMap = {
+        primary  = { 'btnPrimary',  'btnPrimaryHover',  'btnPrimaryActive'  },
+        feature  = { 'btnFeature',  'btnFeatureHover',  'btnFeatureActive'  },
+        positive = { 'btnPositive', 'btnPositiveHover', 'btnPositiveActive' },
+        back     = { 'btnBack',     'btnBackHover',     'btnBackActive'     },
+    };
 
-    local clicked = imgui.Button(label, size or { 0, 0 });
+    -- Default to 'feature' when no named style — ensures all buttons are themed
+    local colors = styleMap[styleName] or styleMap['feature'];
 
-    if pushed > 0 then
-        imgui.PopStyleColor(pushed);
-    end
+    imgui.PushStyleColor(ImGuiCol_Button, ui.color(colors[1]));
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, ui.color(colors[2]));
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, ui.color(colors[3]));
+
+    local clicked = imgui.Button(label, btnSize);
+
+    imgui.PopStyleColor(3);
 
     return clicked;
 end
@@ -206,8 +219,9 @@ end
 -- Layout helpers
 ------------------------------------------------------------
 
--- Push window style colors from theme
+-- Push window style colors + vars from theme
 ui.pushWindowStyle = function()
+    -- Colors (17)
     imgui.PushStyleColor(ImGuiCol_WindowBg, ui.color('windowBg'));
     imgui.PushStyleColor(ImGuiCol_TitleBg, ui.color('windowTitleBg'));
     imgui.PushStyleColor(ImGuiCol_TitleBgActive, ui.color('windowTitleBgAct'));
@@ -225,12 +239,23 @@ ui.pushWindowStyle = function()
     imgui.PushStyleColor(ImGuiCol_Header, ui.color('selectHeader'));
     imgui.PushStyleColor(ImGuiCol_HeaderHovered, ui.color('selectHovered'));
     imgui.PushStyleColor(ImGuiCol_HeaderActive, ui.color('selectActive'));
-    return 17;
+
+    -- Style vars for polish (7)
+    imgui.PushStyleVar(ImGuiStyleVar_WindowRounding, 6);
+    imgui.PushStyleVar(ImGuiStyleVar_ChildRounding, 4);
+    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding, 4);
+    imgui.PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 4);
+    imgui.PushStyleVar(ImGuiStyleVar_TabRounding, 4);
+    imgui.PushStyleVar(ImGuiStyleVar_WindowPadding, { 8, 8 });
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4, 3 });
+
+    return 17; -- color count (vars tracked separately)
 end
 
--- Pop window style colors
+-- Pop window style colors + vars
 ui.popWindowStyle = function(count)
-    imgui.PopStyleColor(count or 5);
+    imgui.PopStyleVar(7);
+    imgui.PopStyleColor(count or 17);
 end
 
 -- Separator with spacing
@@ -281,21 +306,33 @@ ui.categoryButton = function(name, subtitle, index)
     local rowWidth = imgui.GetContentRegionAvail();
 
     local bg = ui.color('childBg');
-    local bgColor = { bg[1] + 0.03, bg[2] + 0.03, bg[3] + 0.05, 0.90 };
+    local bgColor = { bg[1] + 0.04, bg[2] + 0.04, bg[3] + 0.06, 0.70 };
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, bgColor);
-    imgui.BeginChild(btnId, { rowWidth, 34 }, false);
+    imgui.BeginChild(btnId, { rowWidth, 38 }, false);
 
     local dl = imgui.GetWindowDrawList();
     local wx, wy = imgui.GetWindowPos();
-    dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 34 }, imgui.GetColorU32(ui.color('accent')));
+    local ww = imgui.GetWindowWidth();
+
+    -- Accent bar
+    dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 38 }, imgui.GetColorU32(ui.color('accent')));
 
     imgui.SetCursorPosY(0);
     local clicked = imgui.Selectable(string.format('##catsel_p_%s_%d', name, index), false,
-        ImGuiSelectableFlags_SpanAllColumns, { 0, 34 });
+        ImGuiSelectableFlags_SpanAllColumns, { 0, 38 });
 
-    dl:AddText({ wx + 10, wy + 5 }, imgui.GetColorU32(ui.color('white')), name);
-    dl:AddText({ wx + 10, wy + 19 }, imgui.GetColorU32(ui.color('dimmed')), subtitle);
+    -- Hover highlight
+    if imgui.IsItemHovered() then
+        dl:AddRectFilled({ wx + 3, wy }, { wx + ww, wy + 38 },
+            imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.04 }));
+    end
+
+    dl:AddText({ wx + 12, wy + 6 }, imgui.GetColorU32(ui.color('white')), name);
+    dl:AddText({ wx + 12, wy + 21 }, imgui.GetColorU32(ui.color('dimmed')), subtitle);
+
+    -- Chevron on right
+    dl:AddText({ wx + ww - 16, wy + 11 }, imgui.GetColorU32(ui.color('dimmed')), '>');
 
     imgui.EndChild();
     imgui.PopStyleColor(1);
@@ -312,17 +349,22 @@ end
 ui.sectionHeader = function(label, count)
     local hdrId = string.format('##shdr_%s', label);
     local bg = ui.color('childBg');
-    local headerBg = { bg[1] + 0.05, bg[2] + 0.05, bg[3] + 0.08, 1.0 };
+    local headerBg = { bg[1] + 0.06, bg[2] + 0.06, bg[3] + 0.09, 0.85 };
 
     imgui.PushStyleColor(ImGuiCol_ChildBg, headerBg);
-    imgui.BeginChild(hdrId, { -1, 22 }, false);
+    imgui.BeginChild(hdrId, { -1, 24 }, false);
 
     local dl = imgui.GetWindowDrawList();
     local wx, wy = imgui.GetWindowPos();
-    dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 22 }, imgui.GetColorU32(ui.color('accent')));
+    local ww = imgui.GetWindowWidth();
 
-    imgui.SetCursorPosX(10);
-    imgui.SetCursorPosY(3);
+    -- Accent bar + subtle bottom border
+    dl:AddRectFilled({ wx, wy }, { wx + 3, wy + 24 }, imgui.GetColorU32(ui.color('accent')));
+    dl:AddLine({ wx, wy + 23 }, { wx + ww, wy + 23 },
+        imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.06 }));
+
+    imgui.SetCursorPosX(12);
+    imgui.SetCursorPosY(4);
     imgui.TextColored(ui.color('accent'), label);
 
     if count then
