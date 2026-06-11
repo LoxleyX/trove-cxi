@@ -326,6 +326,7 @@ plugins.list = function()
     for _, entry in ipairs(loaded) do
         result[#result + 1] = {
             name        = entry.plugin.name,
+            author      = entry.plugin.author or '',
             description = entry.plugin.description or '',
             file        = entry.file,
             hasMenu     = entry.plugin.menu ~= nil,

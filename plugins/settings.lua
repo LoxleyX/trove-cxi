@@ -171,6 +171,10 @@ local function renderWindow()
             imgui.Spacing();
             for _, p in ipairs(pluginList) do
                 ui.colored(p.name, 'accent');
+                if p.author and p.author ~= '' then
+                    imgui.SameLine(0, 6);
+                    ui.dim('by ' .. p.author);
+                end
                 if p.description ~= '' then
                     imgui.SameLine(0, 8);
                     ui.dim(p.description);

@@ -1,8 +1,11 @@
 --[[
 * trove/plugins/partyfinder.lua — Party Finder
 *
+* Based on the standalone PartyFinder addon by Carver.
+* Integrated into Trove with his permission.
+*
 * Browse LFG/LFM listings, register, join parties, duty roulette,
-* mission help, and ventures. Phase 1: feature parity with standalone addon.
+* mission help, and ventures.
 *
 * Uses packet 0x1A2 (separate from Trove's 0x1A4).
 * Job icons rendered via AF headpiece item textures (no pixel art IP).
@@ -1380,6 +1383,7 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Party Finder',
+    author      = 'Carver',
     description = 'Find groups, register LFG/LFM, duty roulette',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi, sharedRenderTooltip, sharedRenderFileIcon, sharedRenderFileImage)
