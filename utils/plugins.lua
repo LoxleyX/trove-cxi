@@ -89,11 +89,11 @@ end
 -- Initialize all plugins with shared functions
 -- Passes: renderIcon, getItemRes, ui (theme helper module)
 ------------------------------------------------------------
-plugins.initAll = function(renderIcon, getItemRes, renderTooltip, renderFileIcon, renderFileImage)
+plugins.initAll = function(renderIcon, getItemRes, renderTooltip, renderFileIcon, renderFileImage, getIconHandle)
     local ui = require('utils/ui');
     for _, entry in ipairs(loaded) do
         if entry.plugin.init then
-            local ok, err = pcall(entry.plugin.init, renderIcon, getItemRes, ui, renderTooltip, renderFileIcon, renderFileImage);
+            local ok, err = pcall(entry.plugin.init, renderIcon, getItemRes, ui, renderTooltip, renderFileIcon, renderFileImage, getIconHandle);
             if not ok then
                 print(string.format('[trove] Plugin %s init error: %s', entry.plugin.name, tostring(err)));
             end

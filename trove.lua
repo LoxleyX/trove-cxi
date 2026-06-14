@@ -1390,6 +1390,12 @@ local function renderFileIcon(filename, size)
     return false;
 end
 
+-- Get raw texture handle for an item icon (for drawlist rendering)
+local function getIconHandle(itemId)
+    local tex = loadItemTexture(itemId);
+    return textureHandles[itemId];
+end
+
 -- Render a file-based texture at arbitrary width/height
 local function renderFileImage(filename, w, h)
     local tex = loadFileTexture(filename);
@@ -1403,7 +1409,7 @@ end
 
 -- Inject shared functions into plugins after they load
 local function initPlugins()
-    trove_plugins.initAll(renderIcon, getItemRes, renderTooltip, renderFileIcon, renderFileImage);
+    trove_plugins.initAll(renderIcon, getItemRes, renderTooltip, renderFileIcon, renderFileImage, getIconHandle);
 end
 
 local function renderBadges(flags)
