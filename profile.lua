@@ -505,6 +505,7 @@ local function renderWindow()
     imgui.SetNextWindowSize({ 540, 580 }, ImGuiCond_FirstUseEver);
 
     if imgui.Begin('Profile##trove_profile', isOpen, ImGuiWindowFlags_NoCollapse) then
+        local _bgPop = ui.renderBackground();
         local player = getPlayerData();
         if not player then
             imgui.TextColored(ui.color('dimmed'), 'Character data unavailable');
@@ -528,6 +529,7 @@ local function renderWindow()
             end
             imgui.EndTabBar();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(pushed);
@@ -538,6 +540,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Profile',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Job levels, prestige stars, and crafting skills',
     pluginId    = PLUGIN_ID,
 
@@ -554,6 +558,7 @@ return {
     },
 
     window = {
+        category = 'Account',
         isOpen = isOpen,
         render = renderWindow,
         label  = 'Profile',

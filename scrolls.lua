@@ -22,7 +22,7 @@ local renderTooltip = nil;
 -- Scroll Data (loaded from data/scroll_data.lua)
 -- Order MUST match the server's page layout.
 ------------------------------------------------------------
-local CATEGORIES = require('data/scroll_data');
+local CATEGORIES = require('plugins/data/scroll_data');
 
 ------------------------------------------------------------
 -- Protocol
@@ -280,11 +280,13 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin('Scrolls###trove_scrolls', isOpen, ImGuiWindowFlags_None) then
+        local _bgPop = ui.renderBackground();
         if selectedCat then
             renderScrollList();
         else
             renderCategoryList();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -295,6 +297,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Scrolls',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Scroll collection tracker (Crystal Warrior)',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi, sharedRenderTooltip)
@@ -312,6 +316,7 @@ return {
     },
 
     window = {
+        category = 'Storage',
         isOpen  = isOpen,
         render  = renderWindow,
         label   = 'Scrolls',

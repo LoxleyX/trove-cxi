@@ -520,6 +520,7 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin(title, isOpen, ImGuiWindowFlags_NoScrollbar) then
+        local _bgPop = ui.renderBackground();
         local cellW  = ICON_SIZE + CELL_PAD * 2;
         local labelW = 56;
         local startX = labelW + 4;
@@ -578,6 +579,7 @@ local function renderWindow()
                 end
             end
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -588,6 +590,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'VNM Armor',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'VNM armor collection tracker with zone alerts',
 
     -- Expose init for trove.lua to inject shared functions
@@ -607,6 +611,7 @@ return {
     },
 
     window = {
+        category = 'Collections',
         isOpen  = isOpen,
         render  = renderWindow,
         -- Menu entry config for the hamburger popup

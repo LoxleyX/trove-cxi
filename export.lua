@@ -559,6 +559,7 @@ local function renderWindow()
     local pushed = ui.pushWindowStyle();
     imgui.SetNextWindowSize({ 300, 0 }, ImGuiCond_FirstUseEver);
     if imgui.Begin('Trove Export##trove_export', isOpen, ImGuiWindowFlags_AlwaysAutoResize) then
+        local _bgPop = ui.renderBackground();
 
         ui.header('Include');
         imgui.Spacing();
@@ -617,6 +618,7 @@ local function renderWindow()
                 ui.dim(string.format('Exported %d items at %s', lastExport.count, lastExport.time));
             end
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(pushed);
@@ -627,6 +629,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Export',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Export inventory, jobs, and merits to a Lua file',
 
     init = function(iconFn, itemResFn, uiModule)
@@ -661,6 +665,7 @@ return {
     end,
 
     window = {
+        category = 'Account',
         isOpen = isOpen,
         label  = 'Export',
         icon   = 1686, -- Soiled Letter

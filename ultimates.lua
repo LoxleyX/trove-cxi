@@ -1093,6 +1093,7 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin('Ultimates###trove_relics', isOpen, ImGuiWindowFlags_None) then
+        local _bgPop = ui.renderBackground();
 
         -- Header: currency totals with icons
         local currencyLoaded = troveState and troveState.currency and #troveState.currency > 0;
@@ -1169,6 +1170,7 @@ local function renderWindow()
 
             imgui.EndTabBar();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -1179,6 +1181,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Ultimates',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Track dynamis currency progress toward relic weapons',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi, sharedRenderTooltip, sharedRenderFileIcon)
@@ -1207,6 +1211,7 @@ return {
     },
 
     window = {
+        category = 'Collections',
         isOpen = isOpen,
         render = renderWindow,
         label  = 'Ultimates',

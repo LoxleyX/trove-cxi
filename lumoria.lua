@@ -669,6 +669,7 @@ local function renderWindow()
     imgui.SetNextWindowSize({ 680, 600 }, ImGuiCond_FirstUseEver);
 
     if imgui.Begin('Lumoria##trove_lumoria', isOpen, 0) then
+        local _bgPop = ui.renderBackground();
 
         -- Refresh on open transition
         if not wasOpen then
@@ -891,6 +892,7 @@ local function renderWindow()
         end
 
         imgui.EndChild();
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(pushed);
@@ -901,6 +903,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Lumoria',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Sea collection tracker with augment tiers',
     pluginId    = PLUGIN_ID,
 
@@ -963,6 +967,7 @@ return {
     end,
 
     window = {
+        category = 'Collections',
         isOpen = isOpen,
         label  = 'Lumoria',
         icon   = 15514,  -- Love Torque

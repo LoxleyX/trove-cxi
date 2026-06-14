@@ -308,6 +308,7 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin(title, isOpen, ImGuiWindowFlags_NoScrollbar) then
+        local _bgPop = ui.renderBackground();
         if not hasKeyring then
             ui.dim('No Goblin Keyring found.');
         else
@@ -341,6 +342,7 @@ local function renderWindow()
             end
             imgui.EndChild();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -351,6 +353,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Keyring',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Goblin Keyring chest/coffer key collection tracker',
     pluginId    = PLUGIN_ID,
 
@@ -362,6 +366,7 @@ return {
     end,
 
     window = {
+        category = 'Utility',
         isOpen  = isOpen,
         render  = renderWindow,
         label   = 'Keyring',

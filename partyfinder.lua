@@ -244,7 +244,6 @@ local missionSelect = {
 -- Venture state (from 0x1A3 packets)
 local ventureState = {
     lastReceived = 0,
-    version      = 0,
     gameMode     = 0,
     pools = { a = {}, b = {} },
     hvnm = { zoneId = 0, progress = 0, maxProgress = 200, starBonus = false, spawned = false },
@@ -1383,6 +1382,7 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Party Finder',
+    version     = '2.0',
     author      = 'Carver',
     description = 'Find groups, register LFG/LFM, duty roulette',
 

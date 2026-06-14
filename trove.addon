@@ -1,7 +1,0 @@
-[addon]
-name=trove
-author=Loxley
-version=3.2.0
-desc=Browse your Ephemeral Box, Currency, Points, Squire, and Party Finder in-game
-link=https://catseyexi.com
-file=trove.lua

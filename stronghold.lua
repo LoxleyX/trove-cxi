@@ -278,11 +278,13 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin(title, isOpen, ImGuiWindowFlags_NoScrollbar) then
+        local _bgPop = ui.renderBackground();
         if selectedZone then
             renderZoneDetail();
         else
             renderZoneList();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -293,6 +295,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Stronghold',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Stronghold Invasion artifact tracker',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi)
@@ -308,6 +312,7 @@ return {
     },
 
     window = {
+        category = 'Utility',
         isOpen  = isOpen,
         render  = renderWindow,
         label   = 'Stronghold',

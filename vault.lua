@@ -638,6 +638,7 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin('Vault###trove_vault', isOpen, ImGuiWindowFlags_None) then
+        local _bgPop = ui.renderBackground();
 
         if imgui.BeginTabBar('##vault_tabs', ImGuiTabBarFlags_None) then
 
@@ -658,6 +659,7 @@ local function renderWindow()
             imgui.EndTabBar();
         end
 
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -668,6 +670,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Vault',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Browse Mog Vault deposit boxes and wardrobes',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi, sharedRenderTooltip)
@@ -687,6 +691,7 @@ return {
     },
 
     window = {
+        category = 'Storage',
         isOpen  = isOpen,
         render  = renderWindow,
         label   = 'Vault',

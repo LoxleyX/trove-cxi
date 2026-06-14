@@ -515,6 +515,7 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin(title, isOpen, ImGuiWindowFlags_NoScrollbar) then
+        local _bgPop = ui.renderBackground();
         if not hasCodex then
             ui.dim('No Odious Codex found.');
         elseif selectedZone then
@@ -522,6 +523,7 @@ local function renderWindow()
         else
             renderZoneList();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -532,6 +534,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Odious Codex',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Dynamis pop item collection tracker',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi)
@@ -541,10 +545,10 @@ return {
     end,
 
     window = {
+        category = 'Utility',
         isOpen  = isOpen,
         render  = renderWindow,
         label   = 'Odious Codex',
         icon    = 30840,
-        cwOnly  = false,
     },
 };

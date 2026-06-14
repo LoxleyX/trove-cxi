@@ -824,6 +824,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Sand',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Falling sand game',
 
     init = function(iconFn, itemResFn, uiModule)
@@ -841,9 +843,10 @@ return {
     },
 
     window = {
-        isOpen = isOpen,
-        label  = 'Sand',
-        icon   = 503,  -- Valkurm Sunsand
-        render = renderWindow,
+        category = 'Games',
+        isOpen    = isOpen,
+        label     = 'Sand',
+        icon      = 503,  -- Valkurm Sunsand
+        render    = renderWindow,
     },
 }

@@ -194,6 +194,7 @@ local function renderWindow()
     local winColors = ui.pushWindowStyle();
 
     if imgui.Begin(title, isOpen, ImGuiWindowFlags_None) then
+        local _bgPop = ui.renderBackground();
         if not hasPass then
             ui.dim('No Garrison Pass found.');
         else
@@ -209,6 +210,7 @@ local function renderWindow()
 
             imgui.EndChild();
         end
+        if _bgPop > 0 then imgui.PopStyleColor(_bgPop); end
     end
     imgui.End();
     ui.popWindowStyle(winColors);
@@ -219,6 +221,8 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Garrison Pass',
+    author      = 'Loxley',
+    version     = '1.0',
     description = 'Garrison Pass item collection tracker',
 
     init = function(sharedRenderIcon, sharedGetItemRes, sharedUi)
@@ -228,6 +232,7 @@ return {
     end,
 
     window = {
+        category = 'Utility',
         isOpen  = isOpen,
         render  = renderWindow,
         label   = 'Garrison Pass',

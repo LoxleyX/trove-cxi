@@ -2227,7 +2227,9 @@ end
 ------------------------------------------------------------
 return {
     name        = 'Crystal Wars',
-    description = 'Elemental Master-style vertical shmup',
+    author      = 'Loxley',
+    version     = '1.0',
+    description = 'Elemental vertical shooter',
 
     init = function(iconFn, itemResFn, uiModule, tooltipFn, fileIconFn, fileImageFn, iconHandleFn)
         renderIcon = iconFn
@@ -2246,9 +2248,10 @@ return {
     },
 
     window = {
+        category = 'Games',
         isOpen = isOpen,
         label  = 'Crystal Wars',
-        icon   = 700,  -- Fire Crystal
+        icon   = 8919,  -- Ifrit's Ear
         render = renderWindow,
     },
 }
