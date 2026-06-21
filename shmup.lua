@@ -171,99 +171,49 @@ local CLASS_DEF = {
 }
 
 ------------------------------------------------------------
--- Item system (MOBA-style auto-combine)
--- Components drop → equip or combine with current → upgrade
--- Slots: weapon (1), body (2), accessory (3)
+-- Item system (linear upgrades — every pickup upgrades a slot)
+-- Drops are slot-typed. Picking up = instant upgrade to next tier.
+-- No bag, no recipes, no dead ends.
 ------------------------------------------------------------
 local EQUIP_SLOT = { WEAPON = 1, BODY = 2, ACCESSORY = 3 }
 
--- All items: id, name, slot, stats { stat = value }, tier, rarity, recipe (what 2 items combine into this)
-local ITEMS = {}
-local ITEM_BY_ID = {}
-
-local function defItem(id, name, slot, stats, tier, rarity, recipe)
-    local item = { id = id, name = name, slot = slot, stats = stats, tier = tier, rarity = rarity, recipe = recipe }
-    ITEMS[#ITEMS + 1] = item
-    ITEM_BY_ID[id] = item
-    return item
-end
-
--- WEAPON path (slot 1)
--- T1 components
-defItem(4096,  'Fire Crystal',    1, { dmg = 1 },             1, 1, nil)
-defItem(656,   'Beastcoin',       1, { dmg = 2 },             1, 1, nil)
-defItem(4097,  'Ice Crystal',     1, { dmg = 1, rate = 1 },   1, 1, nil)
-defItem(4098,  'Wind Crystal',    1, { dmg = 2 },             1, 1, nil)
--- T2 weapons
-defItem(16465, 'Bronze Knife',    1, { dmg = 5 },             2, 2, { 4096, 656 })
-defItem(16537, 'Mythril Sword',   1, { dmg = 7 },             2, 2, { 4097, 4098 })
-defItem(16645, 'Darksteel Axe',   1, { dmg = 6, hp = 10 },    2, 2, { 4096, 4098 })
--- T3 weapons
-defItem(16826, 'Joyeuse',         1, { dmg = 12, rate = 2 },  3, 3, { 16465, 16537 })
-defItem(17041, 'Holy Mace',       1, { dmg = 10, hp = 25 },   3, 3, { 16465, 16645 })
-defItem(16698, 'Ridill',          1, { dmg = 15 },            3, 3, { 16537, 16645 })
--- T4 final weapons (iconic 75 gear)
-defItem(16901, 'Excalibur',       1, { dmg = 22, hp = 30 },   4, 4, { 16826, 17041 })
-defItem(16904, 'Ragnarok',        1, { dmg = 28 },            4, 4, { 16826, 16698 })
-defItem(16903, 'Mandau',          1, { dmg = 20, rate = 4 },  4, 4, { 17041, 16698 })
-
--- BODY path (slot 2)
--- T1 components
-defItem(643,   'Iron Ore',        2, { hp = 5 },              1, 1, nil)
-defItem(645,   'Darksteel Ore',   2, { hp = 8 },              1, 1, nil)
-defItem(852,   'Lizard Skin',     2, { hp = 4, speed = 0.1 }, 1, 1, nil)
-defItem(851,   'Ram Leather',     2, { hp = 6 },              1, 1, nil)
--- T2 armor
-defItem(12552, 'Chainmail',       2, { hp = 20 },             2, 2, { 643, 645 })
-defItem(12568, 'Leather Vest',    2, { hp = 12, speed = 0.3 },2, 2, { 852, 851 })
-defItem(12571, 'Scale Mail',      2, { hp = 16, dmg = 2 },    2, 2, { 643, 851 })
--- T3 armor
-defItem(12555, 'Haubergeon',      2, { hp = 40, dmg = 4 },    3, 3, { 12552, 12571 })
-defItem(12579, 'Scorpion Harness',2, { hp = 30, speed = 0.5 },3, 3, { 12568, 12571 })
-defItem(13805, 'Assault Jerkin',  2, { hp = 35, rate = 2 },   3, 3, { 12552, 12568 })
--- T4 final armor
-defItem(14525, 'Osode',           2, { hp = 65, dmg = 6 },    4, 4, { 12555, 14430 })
-defItem(14473, 'Shura Togi',      2, { hp = 50, dmg = 10, speed = 0.3 }, 4, 4, { 12555, 12579 })
-defItem(14509, 'Blessed Briault', 2, { hp = 80, rate = 3 },   4, 4, { 12579, 14430 })
-
--- ACCESSORY path (slot 3)
--- T1 components
-defItem(640,   'Copper Ore',      3, { speed = 0.1 },         1, 1, nil)
-defItem(644,   'Mythril Ore',     3, { speed = 0.15 },        1, 1, nil)
-defItem(4100,  'Earth Crystal',   3, { rate = 1 },            1, 1, nil)
-defItem(4101,  'Water Crystal',   3, { hp = 5, speed = 0.1 }, 1, 1, nil)
--- T2 accessories
-defItem(13469, 'Leather Ring',    3, { speed = 0.3 },         2, 2, { 640, 644 })
-defItem(13446, 'Mythril Ring',    3, { speed = 0.2, rate = 1 },2, 2, { 644, 4100 })
-defItem(13570, 'Protecting Ring', 3, { hp = 20, speed = 0.2 },2, 2, { 640, 4101 })
--- T3 accessories
-defItem(13280, 'Sniper Ring',     3, { rate = 3, dmg = 3 },   3, 3, { 13446, 13469 })
-defItem(15297, 'Unyielding Ring', 3, { hp = 35, speed = 0.3 },3, 3, { 13570, 13469 })
-defItem(15298, 'Flame Ring',      3, { dmg = 8, rate = 1 },   3, 3, { 13446, 13570 })
--- T4 final accessories
-defItem(15543, 'Rajas Ring',      3, { dmg = 5, rate = 4, speed = 0.3 }, 4, 4, { 13280, 15298 })
-defItem(15544, 'Defending Ring',  3, { hp = 60, speed = 0.4 },           4, 4, { 15297, 13280 })
-defItem(15541, 'Toreador Ring',   3, { rate = 5, speed = 0.5 },          4, 4, { 15297, 15298 })
-
--- Build recipe lookup: { [resultId] = { comp1id, comp2id } }
-local RECIPES = {}  -- [id1][id2] = resultItem
-for _, item in ipairs(ITEMS) do
-    if item.recipe then
-        local a, b = item.recipe[1], item.recipe[2]
-        if not RECIPES[a] then RECIPES[a] = {} end
-        if not RECIPES[b] then RECIPES[b] = {} end
-        RECIPES[a][b] = item
-        RECIPES[b][a] = item
-    end
-end
-
--- Get all T1 items for a slot (droppable components)
-local DROPPABLE = { {}, {}, {} }
-for _, item in ipairs(ITEMS) do
-    if item.tier == 1 then
-        table.insert(DROPPABLE[item.slot], item)
-    end
-end
+-- Upgrade paths per slot: tier 1-5, each with FFXI item icon + stats
+-- Drop icons: what appears on the ground for this slot
+local SLOT_DATA = {
+    [1] = { -- WEAPON
+        name = 'Weapon',
+        dropIcons = { 4096, 656, 4097, 4098 },  -- crystals/beastcoin
+        tiers = {
+            { id = 16465, name = 'Bronze Knife',   stats = { dmg = 3 },                     rarity = 1 },
+            { id = 16537, name = 'Mythril Sword',   stats = { dmg = 7 },                     rarity = 2 },
+            { id = 16826, name = 'Joyeuse',         stats = { dmg = 12, rate = 2 },           rarity = 3 },
+            { id = 16698, name = 'Ridill',          stats = { dmg = 18, rate = 3 },           rarity = 4 },
+            { id = 16901, name = 'Excalibur',       stats = { dmg = 25, hp = 30, rate = 4 },  rarity = 4 },
+        },
+    },
+    [2] = { -- BODY
+        name = 'Body',
+        dropIcons = { 643, 645, 852, 851 },  -- ores/skins
+        tiers = {
+            { id = 12568, name = 'Leather Vest',     stats = { hp = 15 },                      rarity = 1 },
+            { id = 12552, name = 'Chainmail',        stats = { hp = 30, dmg = 2 },              rarity = 2 },
+            { id = 12555, name = 'Haubergeon',       stats = { hp = 50, dmg = 5 },              rarity = 3 },
+            { id = 12579, name = 'Scorpion Harness', stats = { hp = 70, speed = 0.4 },          rarity = 4 },
+            { id = 14525, name = 'Osode',            stats = { hp = 100, dmg = 8, speed = 0.3 }, rarity = 4 },
+        },
+    },
+    [3] = { -- ACCESSORY
+        name = 'Accessory',
+        dropIcons = { 640, 644, 4100, 4101 },  -- ores/crystals
+        tiers = {
+            { id = 13469, name = 'Leather Ring',  stats = { speed = 0.2 },                    rarity = 1 },
+            { id = 13446, name = 'Mythril Ring',   stats = { speed = 0.3, rate = 1 },          rarity = 2 },
+            { id = 13280, name = 'Sniper Ring',    stats = { rate = 3, dmg = 3 },              rarity = 3 },
+            { id = 15543, name = 'Rajas Ring',     stats = { rate = 4, dmg = 5, speed = 0.3 }, rarity = 4 },
+            { id = 15544, name = 'Defending Ring', stats = { hp = 50, rate = 5, speed = 0.5 }, rarity = 4 },
+        },
+    },
+}
 
 local RARITY_COL = {
     [1] = { 0.60, 0.60, 0.60, 1.0 },  -- common (gray)
@@ -272,13 +222,9 @@ local RARITY_COL = {
     [4] = { 0.75, 0.45, 0.90, 1.0 },  -- epic (purple)
 }
 
--- tryCombine defined after player state (needs player reference)
-
 ------------------------------------------------------------
 -- Player state
 ------------------------------------------------------------
-local BAG_SIZE = 6  -- small component bag
-
 local player = {
     class       = CLASS_BLM,
     x           = VIEW_W / 2,
@@ -297,29 +243,15 @@ local player = {
     chargeTimer = 0,
     charging    = false,
     iframes     = 0,
-    equipment   = { nil, nil, nil },  -- weapon, body, accessory (item references)
-    bag         = {},                 -- small bag for components (max BAG_SIZE)
-    combineMsg  = nil,               -- { text, timer } flash message on combine
+    slotTier    = { 0, 0, 0 },  -- current tier per slot (0 = empty, 1-5)
+    combineMsg  = nil,          -- { text, timer, itemId, rarity } flash message
 }
 
--- Try to combine a new item with equipped + bag items
-local function tryCombine(newItem)
-    local slot = newItem.slot
-
-    -- Check equipped item first
-    local equipped = player.equipment[slot]
-    if equipped and RECIPES[equipped.id] and RECIPES[equipped.id][newItem.id] then
-        return RECIPES[equipped.id][newItem.id], 'equipped'
-    end
-
-    -- Check bag items
-    for i, bagItem in ipairs(player.bag) do
-        if bagItem.slot == slot and RECIPES[bagItem.id] and RECIPES[bagItem.id][newItem.id] then
-            return RECIPES[bagItem.id][newItem.id], 'bag', i
-        end
-    end
-
-    return nil
+-- Get the equipped item data for a slot (nil if empty)
+local function getEquipped(slot)
+    local tier = player.slotTier[slot]
+    if tier <= 0 then return nil end
+    return SLOT_DATA[slot].tiers[tier]
 end
 
 -- Determine which game level the player is on (1-3) based on player level
@@ -358,7 +290,7 @@ local ENEMY_TYPES = {
     -- Level 2: Beastmen
     { name = 'Orc',          icon = 15200, color = 0xFF886644, level = 2, hp = 30,  speed = 0.6, score = 20,  shootRate = 45,  projSpeed = 2.5, projDmg = 12,  dropChance = 0.4,  projIcon = 17330 },
     { name = 'Yagudo',       icon = 15202, color = 0xFF669944, level = 2, hp = 25,  speed = 0.9, score = 20,  shootRate = 40,  projSpeed = 3,   projDmg = 10,  dropChance = 0.4,  projIcon = 17307 },
-    { name = 'Quadav',       icon = 501,   color = 0xFF557788, level = 2, hp = 40,  speed = 0.5, score = 25,  shootRate = 55,  projSpeed = 2,   projDmg = 15,  dropChance = 0.45, projIcon = 17336 },
+    { name = 'Quadav',       icon = 15201, color = 0xFF557788, level = 2, hp = 40,  speed = 0.5, score = 25,  shootRate = 55,  projSpeed = 2,   projDmg = 15,  dropChance = 0.45, projIcon = 17336 },
 
     -- Level 3: Aht Urhgan beastmen
     { name = 'Lamia',        icon = 16123, color = 0xFF8855AA, level = 3, hp = 50,  speed = 0.7, score = 35,  shootRate = 35,  projSpeed = 3.5, projDmg = 18,  dropChance = 0.5,  projIcon = 18157 },
@@ -818,7 +750,8 @@ local function getPlayerStats()
     local rate  = def.projRate
     local hp    = def.hp
 
-    for _, eq in ipairs(player.equipment) do
+    for slot = 1, 3 do
+        local eq = getEquipped(slot)
         if eq and eq.stats then
             dmg   = dmg + (eq.stats.dmg or 0)
             hp    = hp + (eq.stats.hp or 0)
@@ -1091,82 +1024,56 @@ end
 local function rollDrop(ex, ey, dropChance)
     if math.random() > dropChance then return end
 
-    -- Pick a random slot, then a random T1 component for that slot
-    local slot = math.random(1, 3)
-    local pool = DROPPABLE[slot]
-    if #pool == 0 then return end
+    -- Pick a random slot that can still upgrade (not maxed)
+    local candidates = {}
+    for slot = 1, 3 do
+        local maxTier = #SLOT_DATA[slot].tiers
+        if player.slotTier[slot] < maxTier then
+            candidates[#candidates + 1] = slot
+        end
+    end
 
-    local item = pool[math.random(#pool)]
-    table.insert(drops, { x = ex, y = ey, item = item, timer = 300 })
+    -- All slots maxed: give XP instead
+    if #candidates == 0 then
+        player.xp = player.xp + 25
+        return
+    end
+
+    local slot = candidates[math.random(#candidates)]
+    local icons = SLOT_DATA[slot].dropIcons
+    local dropIcon = icons[math.random(#icons)]
+
+    table.insert(drops, { x = ex, y = ey, slot = slot, iconId = dropIcon, timer = 300 })
 end
 
-local function pickupItem(item)
-    -- Try to combine with something we have
-    local result, source, bagIdx = tryCombine(item)
+local function pickupDrop(drop)
+    local slot = drop.slot
+    local sd = SLOT_DATA[slot]
+    local maxTier = #sd.tiers
 
-    if result then
-        -- Combination found!
-        if source == 'equipped' then
-            player.equipment[item.slot] = result
-        elseif source == 'bag' then
-            table.remove(player.bag, bagIdx)
-            -- Equip the result if slot empty or result is better tier
-            local current = player.equipment[item.slot]
-            if not current or result.tier > current.tier then
-                if current then table.insert(player.bag, current) end
-                player.equipment[item.slot] = result
-            else
-                table.insert(player.bag, result)
-            end
-        end
-        player.combineMsg = { text = result.name .. '!', timer = 90, itemId = result.id, rarity = result.rarity }
-
-        -- Chain-combine: the new result might combine with something else in bag
-        local chainResult, chainSource, chainIdx = tryCombine(result)
-        if chainResult and chainSource == 'bag' then
-            table.remove(player.bag, chainIdx)
-            player.equipment[result.slot] = chainResult
-            player.combineMsg = { text = chainResult.name .. '!!', timer = 90, itemId = chainResult.id, rarity = chainResult.rarity }
-        end
-
-        -- Update max HP
-        local stats = getPlayerStats()
-        player.maxHp = stats.hp
-        if player.hp > player.maxHp then player.hp = player.maxHp end
+    if player.slotTier[slot] >= maxTier then
+        -- Already maxed: bonus XP
+        player.xp = player.xp + 25
         return true
     end
 
-    -- T1 components never equip directly, only go in bag
-    if item.tier <= 1 then
-        if #player.bag < BAG_SIZE then
-            table.insert(player.bag, item)
-            return true
-        end
-        return false  -- bag full
-    end
+    -- Upgrade to next tier
+    player.slotTier[slot] = player.slotTier[slot] + 1
+    local newItem = sd.tiers[player.slotTier[slot]]
 
-    -- T2+ items: equip if slot empty or better than current
-    local slot = item.slot
-    local current = player.equipment[slot]
-    if not current or item.tier > current.tier then
-        player.equipment[slot] = item
-        -- Demote old item to bag if space
-        if current and #player.bag < BAG_SIZE then
-            table.insert(player.bag, current)
-        end
-        local stats = getPlayerStats()
-        player.maxHp = stats.hp
-        if player.hp > player.maxHp then player.hp = player.maxHp end
-        return true
-    end
+    player.combineMsg = {
+        text   = newItem.name .. '!',
+        timer  = 90,
+        itemId = newItem.id,
+        rarity = newItem.rarity,
+    }
 
-    -- Same or lower tier: stash in bag
-    if #player.bag < BAG_SIZE then
-        table.insert(player.bag, item)
-        return true
-    end
+    -- Update max HP
+    local stats = getPlayerStats()
+    player.maxHp = stats.hp
+    if player.hp > player.maxHp then player.hp = player.maxHp end
 
-    return false  -- bag full
+    return true
 end
 
 ------------------------------------------------------------
@@ -1189,8 +1096,7 @@ local function resetGame(classId)
     player.chargeTimer = 0
     player.charging  = false
     player.iframes   = 0
-    player.equipment = { nil, nil, nil }
-    player.bag       = {}
+    player.slotTier   = { 0, 0, 0 }
     player.combineMsg = nil
 
     playerProj = {}
@@ -1553,7 +1459,7 @@ local function updatePlaying()
             table.remove(drops, i)
         elseif aabb(player.x - 10, player.y - 10, 20, 20,
                      d.x - 5, d.y - 5, 10, 10) then
-            if pickupItem(d.item) then
+            if pickupDrop(d) then
                 table.remove(drops, i)
             else
                 i = i + 1
@@ -1787,26 +1693,26 @@ local function renderIconOverlays(ox, oy)
 end
 
 local function renderDrops()
+    -- Slot-colored glow under each drop
+    local SLOT_GLOW = {
+        [1] = 0xFF443322,  -- weapon (warm)
+        [2] = 0xFF223344,  -- body (blue)
+        [3] = 0xFF334422,  -- accessory (green)
+    }
     for _, d in ipairs(drops) do
-        -- Glow/shadow under the icon
-        local rc = RARITY_COL[d.item.rarity] or RARITY_COL[1]
-        local glowCol = 0xFF000000
-            + bit.lshift(math.floor(rc[1] * 128), 16)
-            + bit.lshift(math.floor(rc[2] * 128), 8)
-            + math.floor(rc[3] * 128)
-        fillRect(math.floor(d.x - 5), math.floor(d.y - 5), 10, 10, glowCol)
+        local col = SLOT_GLOW[d.slot] or 0xFF333333
+        fillRect(math.floor(d.x - 5), math.floor(d.y - 5), 10, 10, col)
     end
 end
 
--- Render item icons on top of drops (called after imgui.Image, using cursor positioning)
+-- Render item icons on top of drops
 local function renderDropIcons(imgOriginX, imgOriginY)
     if not renderIcon then return end
     for _, d in ipairs(drops) do
-        -- Position icon over the game area
         local ix = imgOriginX + d.x - 8
         local iy = imgOriginY + d.y - 8
         imgui.SetCursorPos({ ix, iy })
-        renderIcon(d.item.id, 16)
+        renderIcon(d.iconId, 16)
     end
 end
 
@@ -1863,15 +1769,19 @@ local isOpen = { false }
 local menuSel = 1
 
 local function renderMenuOverlay()
+    -- Constrain menu to game area width
+    imgui.BeginChild('##shmup_menu', { TEX_W + 4, -1 }, false)
+
     imgui.Spacing()
     imgui.Spacing()
 
     -- Title
-    imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize('CRYSTAL WARS')) / 2)
+    local menuW = TEX_W
+    imgui.SetCursorPosX((menuW - imgui.CalcTextSize('CRYSTAL WARS')) / 2)
     imgui.TextColored({ 0.90, 0.75, 0.30, 1.0 }, 'CRYSTAL WARS')
     imgui.Spacing()
 
-    imgui.SetCursorPosX((imgui.GetWindowWidth() - imgui.CalcTextSize('Select your class:')) / 2)
+    imgui.SetCursorPosX((menuW - imgui.CalcTextSize('Select your class:')) / 2)
     imgui.TextColored({ 0.60, 0.60, 0.65, 1.0 }, 'Select your class:')
     imgui.Spacing()
     imgui.Spacing()
@@ -1888,7 +1798,7 @@ local function renderMenuOverlay()
             imgui.SameLine(0, 8)
         end
 
-        local btnW = imgui.GetWindowWidth() - 60
+        local btnW = menuW - 80
         imgui.PushStyleColor(ImGuiCol_Button,        { r * 0.4, g * 0.4, b * 0.4, 0.8 })
         imgui.PushStyleColor(ImGuiCol_ButtonHovered,  { r * 0.6, g * 0.6, b * 0.6, 0.9 })
         imgui.PushStyleColor(ImGuiCol_ButtonActive,   { r * 0.8, g * 0.8, b * 0.8, 1.0 })
@@ -1901,6 +1811,8 @@ local function renderMenuOverlay()
         imgui.TextColored({ 0.50, 0.50, 0.55, 1.0 }, def.desc)
         imgui.Spacing()
     end
+
+    imgui.EndChild()
 end
 
 local function renderGameOverOverlay()
@@ -1980,104 +1892,47 @@ local function renderSidePanel()
     dl:AddRectFilled({ xx, xy }, { xx + barW * xpPct, xy + 4 }, imgui.GetColorU32({ 0.75, 0.70, 0.20, 1.0 }), 2)
     imgui.Dummy({ barW, 6 })
 
-    -- Equipment slots
+    -- Equipment slots (linear tier display)
     imgui.Spacing()
     imgui.Separator()
     imgui.TextColored({ 0.70, 0.70, 0.75, 1.0 }, 'Equipment')
     imgui.Spacing()
 
+    local SLOT_LABELS = { 'Weapon', 'Body', 'Accessory' }
     for slot = 1, 3 do
-        local eq = player.equipment[slot]
-        imgui.TextColored({ 0.45, 0.45, 0.50, 1.0 }, SLOT_NAMES[slot])
+        local sd = SLOT_DATA[slot]
+        local tier = player.slotTier[slot]
+        local eq = getEquipped(slot)
+
+        imgui.TextColored({ 0.45, 0.45, 0.50, 1.0 }, SLOT_LABELS[slot])
         if eq then
             if renderIcon then renderIcon(eq.id, 20) end
             imgui.SameLine(0, 4)
             local rc = RARITY_COL[eq.rarity] or RARITY_COL[1]
             imgui.TextColored(rc, eq.name)
-            -- Stats line
+            -- Stats
             local parts = {}
-            if eq.stats.dmg   and eq.stats.dmg > 0   then table.insert(parts, string.format('+%d DMG', eq.stats.dmg)) end
-            if eq.stats.hp    and eq.stats.hp > 0     then table.insert(parts, string.format('+%d HP', eq.stats.hp)) end
-            if eq.stats.speed and eq.stats.speed > 0  then table.insert(parts, string.format('+%.1f SPD', eq.stats.speed)) end
-            if eq.stats.rate  and eq.stats.rate > 0   then table.insert(parts, string.format('-%d Rate', eq.stats.rate)) end
+            if eq.stats.dmg   and eq.stats.dmg > 0   then parts[#parts+1] = string.format('+%d DMG', eq.stats.dmg) end
+            if eq.stats.hp    and eq.stats.hp > 0     then parts[#parts+1] = string.format('+%d HP', eq.stats.hp) end
+            if eq.stats.speed and eq.stats.speed > 0  then parts[#parts+1] = string.format('+%.1f SPD', eq.stats.speed) end
+            if eq.stats.rate  and eq.stats.rate > 0   then parts[#parts+1] = string.format('-%d Rate', eq.stats.rate) end
             if #parts > 0 then
                 imgui.TextColored({ 0.40, 0.70, 0.40, 0.80 }, table.concat(parts, '  '))
             end
-            -- Tooltip with upgrade path
+            -- Tooltip: show upgrade path
             if imgui.IsItemHovered() then
                 imgui.BeginTooltip()
-                imgui.TextColored(rc, string.format('%s (T%d)', eq.name, eq.tier))
-                for _, p in ipairs(parts) do
-                    imgui.TextColored({ 0.40, 0.80, 0.40, 1.0 }, p)
-                end
-                -- Show what this combines into
-                if RECIPES[eq.id] then
-                    imgui.Separator()
-                    imgui.TextColored({ 0.50, 0.50, 0.55, 1.0 }, 'Combines with:')
-                    for otherId, result in pairs(RECIPES[eq.id]) do
-                        local other = ITEM_BY_ID[otherId]
-                        if other then
-                            local orc = RARITY_COL[other.rarity] or RARITY_COL[1]
-                            local rrc = RARITY_COL[result.rarity] or RARITY_COL[1]
-                            imgui.TextColored(orc, '  ' .. other.name)
-                            imgui.SameLine(0, 4)
-                            imgui.TextColored({ 0.50, 0.50, 0.55, 1.0 }, '->')
-                            imgui.SameLine(0, 4)
-                            imgui.TextColored(rrc, result.name)
-                        end
-                    end
+                for t, tierData in ipairs(sd.tiers) do
+                    local trc = RARITY_COL[tierData.rarity] or RARITY_COL[1]
+                    local prefix = (t == tier) and '> ' or '  '
+                    local alpha = (t <= tier) and 1.0 or 0.4
+                    imgui.TextColored({ trc[1], trc[2], trc[3], alpha },
+                        string.format('%sT%d: %s', prefix, t, tierData.name))
                 end
                 imgui.EndTooltip()
             end
         else
             imgui.TextColored({ 0.30, 0.30, 0.35, 1.0 }, '  (empty)')
-        end
-    end
-
-    -- Bag (components waiting to combine)
-    imgui.Spacing()
-    imgui.Separator()
-    imgui.TextColored({ 0.70, 0.70, 0.75, 1.0 },
-        string.format('Bag (%d/%d)', #player.bag, BAG_SIZE))
-    imgui.Spacing()
-
-    local toEquipIdx = nil
-    for i, item in ipairs(player.bag) do
-        if renderIcon then renderIcon(item.id, 16) end
-        imgui.SameLine(0, 4)
-        local rc = RARITY_COL[item.rarity] or RARITY_COL[1]
-        imgui.TextColored(rc, item.name)
-        if imgui.IsItemHovered() then
-            imgui.BeginTooltip()
-            imgui.TextColored(rc, string.format('%s (T%d)', item.name, item.tier))
-            local parts = {}
-            if item.stats.dmg   and item.stats.dmg > 0   then table.insert(parts, string.format('+%d DMG', item.stats.dmg)) end
-            if item.stats.hp    and item.stats.hp > 0     then table.insert(parts, string.format('+%d HP', item.stats.hp)) end
-            if item.stats.speed and item.stats.speed > 0  then table.insert(parts, string.format('+%.1f SPD', item.stats.speed)) end
-            if item.stats.rate  and item.stats.rate > 0   then table.insert(parts, string.format('-%d Rate', item.stats.rate)) end
-            for _, p in ipairs(parts) do
-                imgui.TextColored({ 0.40, 0.80, 0.40, 1.0 }, p)
-            end
-            imgui.TextColored({ 0.50, 0.50, 0.55, 1.0 }, 'Click to equip')
-            imgui.EndTooltip()
-        end
-        if imgui.IsItemClicked() then
-            toEquipIdx = i
-        end
-    end
-
-    -- Process bag equip (click to swap with equipped)
-    if toEquipIdx then
-        local item = player.bag[toEquipIdx]
-        if item then
-            local slot = item.slot
-            local old = player.equipment[slot]
-            player.equipment[slot] = item
-            table.remove(player.bag, toEquipIdx)
-            if old then table.insert(player.bag, old) end
-            local stats = getPlayerStats()
-            player.maxHp = stats.hp
-            if player.hp > player.maxHp then player.hp = player.maxHp end
         end
     end
 
@@ -2105,9 +1960,7 @@ end
 -- ImGui: game + side panel layout
 ------------------------------------------------------------
 local function renderPlayingOverlay()
-    -- Controls hint below the game area
-    imgui.SetCursorPos({ 8, VIEW_H + 4 })
-    imgui.TextColored({ 0.35, 0.35, 0.40, 1.0 }, 'Move cursor to move  |  Hold RMB to charge')
+    -- (control hints removed — they were clipped by the panel)
 end
 
 local function renderWindow()
