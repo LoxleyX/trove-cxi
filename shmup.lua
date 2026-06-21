@@ -171,49 +171,116 @@ local CLASS_DEF = {
 }
 
 ------------------------------------------------------------
--- Item system (linear upgrades — every pickup upgrades a slot)
--- Drops are slot-typed. Picking up = instant upgrade to next tier.
--- No bag, no recipes, no dead ends.
+-- Item system (branching upgrades — every pickup upgrades a slot)
+-- T1→T2 automatic. T3+ the drop shows as the specific item.
+-- Player chooses path by which drop they walk over.
 ------------------------------------------------------------
 local EQUIP_SLOT = { WEAPON = 1, BODY = 2, ACCESSORY = 3 }
 
--- Upgrade paths per slot: tier 1-5, each with FFXI item icon + stats
--- Drop icons: what appears on the ground for this slot
+-- Each tier entry: { id, name, stats, rarity, from }
+-- 'from' = which item ID this upgrades FROM (nil = root / any)
 local SLOT_DATA = {
     [1] = { -- WEAPON
         name = 'Weapon',
-        dropIcons = { 4096, 656, 4097, 4098 },  -- crystals/beastcoin
+        dropIcons = { 4096, 656, 4097, 4098 },
         tiers = {
-            { id = 16465, name = 'Bronze Knife',   stats = { dmg = 3 },                     rarity = 1 },
-            { id = 16537, name = 'Mythril Sword',   stats = { dmg = 7 },                     rarity = 2 },
-            { id = 16826, name = 'Joyeuse',         stats = { dmg = 12, rate = 2 },           rarity = 3 },
-            { id = 16698, name = 'Ridill',          stats = { dmg = 18, rate = 3 },           rarity = 4 },
-            { id = 16901, name = 'Excalibur',       stats = { dmg = 25, hp = 30, rate = 4 },  rarity = 4 },
+            [1] = {
+                { id = 16465, name = 'Bronze Knife',    stats = { dmg = 3 },                      rarity = 1 },
+            },
+            [2] = {
+                { id = 16537, name = 'Mythril Sword',   stats = { dmg = 7 },                      rarity = 2, from = 16465 },
+            },
+            [3] = {  -- BRANCH: speed vs power vs balanced
+                { id = 16826, name = 'Joyeuse',        stats = { dmg = 10, rate = 3 },            rarity = 3, from = 16537 },
+                { id = 16698, name = 'Ridill',          stats = { dmg = 16 },                      rarity = 3, from = 16537 },
+                { id = 17041, name = 'Holy Mace',       stats = { dmg = 12, hp = 20 },             rarity = 3, from = 16537 },
+            },
+            [4] = {  -- T4 depends on T3 choice
+                { id = 16903, name = 'Mandau',          stats = { dmg = 18, rate = 5 },            rarity = 4, from = 16826 },
+                { id = 16904, name = 'Ragnarok',        stats = { dmg = 28 },                      rarity = 4, from = 16698 },
+                { id = 16901, name = 'Excalibur',       stats = { dmg = 22, hp = 40 },             rarity = 4, from = 17041 },
+            },
         },
     },
     [2] = { -- BODY
         name = 'Body',
-        dropIcons = { 643, 645, 852, 851 },  -- ores/skins
+        dropIcons = { 643, 645, 852, 851 },
         tiers = {
-            { id = 12568, name = 'Leather Vest',     stats = { hp = 15 },                      rarity = 1 },
-            { id = 12552, name = 'Chainmail',        stats = { hp = 30, dmg = 2 },              rarity = 2 },
-            { id = 12555, name = 'Haubergeon',       stats = { hp = 50, dmg = 5 },              rarity = 3 },
-            { id = 12579, name = 'Scorpion Harness', stats = { hp = 70, speed = 0.4 },          rarity = 4 },
-            { id = 14525, name = 'Osode',            stats = { hp = 100, dmg = 8, speed = 0.3 }, rarity = 4 },
+            [1] = {
+                { id = 12568, name = 'Leather Vest',     stats = { hp = 15 },                      rarity = 1 },
+            },
+            [2] = {
+                { id = 12552, name = 'Chainmail',        stats = { hp = 30 },                      rarity = 2, from = 12568 },
+            },
+            [3] = {  -- BRANCH: tank vs speed vs damage
+                { id = 12555, name = 'Haubergeon',       stats = { hp = 50, dmg = 5 },             rarity = 3, from = 12552 },
+                { id = 12579, name = 'Scorpion Harness', stats = { hp = 30, speed = 0.5 },         rarity = 3, from = 12552 },
+                { id = 13805, name = 'Assault Jerkin',   stats = { hp = 35, rate = 3 },            rarity = 3, from = 12552 },
+            },
+            [4] = {
+                { id = 14525, name = 'Osode',            stats = { hp = 80, dmg = 8 },             rarity = 4, from = 12555 },
+                { id = 14473, name = 'Shura Togi',       stats = { hp = 50, dmg = 5, speed = 0.5 }, rarity = 4, from = 12579 },
+                { id = 14509, name = 'Blessed Briault',  stats = { hp = 60, rate = 4 },            rarity = 4, from = 13805 },
+            },
         },
     },
     [3] = { -- ACCESSORY
         name = 'Accessory',
-        dropIcons = { 640, 644, 4100, 4101 },  -- ores/crystals
+        dropIcons = { 640, 644, 4100, 4101 },
         tiers = {
-            { id = 13469, name = 'Leather Ring',  stats = { speed = 0.2 },                    rarity = 1 },
-            { id = 13446, name = 'Mythril Ring',   stats = { speed = 0.3, rate = 1 },          rarity = 2 },
-            { id = 13280, name = 'Sniper Ring',    stats = { rate = 3, dmg = 3 },              rarity = 3 },
-            { id = 15543, name = 'Rajas Ring',     stats = { rate = 4, dmg = 5, speed = 0.3 }, rarity = 4 },
-            { id = 15544, name = 'Defending Ring', stats = { hp = 50, rate = 5, speed = 0.5 }, rarity = 4 },
+            [1] = {
+                { id = 13469, name = 'Leather Ring',   stats = { speed = 0.2 },                    rarity = 1 },
+            },
+            [2] = {
+                { id = 13446, name = 'Mythril Ring',    stats = { speed = 0.3, rate = 1 },          rarity = 2, from = 13469 },
+            },
+            [3] = {  -- BRANCH: attack vs defence vs speed
+                { id = 13280, name = 'Sniper Ring',    stats = { rate = 3, dmg = 4 },              rarity = 3, from = 13446 },
+                { id = 15297, name = 'Unyielding Ring', stats = { hp = 40, speed = 0.3 },          rarity = 3, from = 13446 },
+                { id = 15298, name = 'Flame Ring',     stats = { dmg = 8, rate = 1 },              rarity = 3, from = 13446 },
+            },
+            [4] = {
+                { id = 15543, name = 'Rajas Ring',     stats = { dmg = 6, rate = 5, speed = 0.3 }, rarity = 4, from = 13280 },
+                { id = 15544, name = 'Defending Ring', stats = { hp = 60, speed = 0.5 },           rarity = 4, from = 15297 },
+                { id = 15541, name = 'Toreador Ring',  stats = { dmg = 12, rate = 3 },             rarity = 4, from = 15298 },
+            },
         },
     },
 }
+
+-- Lookup: given current equipped item ID for a slot, what can upgrade next?
+local function getUpgradeOptions(slot)
+    local sd = SLOT_DATA[slot]
+    local tier = player.slotTier[slot]
+    local nextTier = tier + 1
+    if not sd.tiers[nextTier] then return nil end
+
+    if tier == 0 then
+        -- No equipment yet: return T1 options (always just one)
+        return sd.tiers[1]
+    end
+
+    -- Get current item ID
+    local currentItem = sd.tiers[tier]
+    local currentId = nil
+    if player.slotChoice and player.slotChoice[slot] then
+        currentId = player.slotChoice[slot]
+    elseif #currentItem == 1 then
+        currentId = currentItem[1].id
+    end
+
+    if not currentId then return sd.tiers[nextTier] end
+
+    -- Filter next tier by 'from' matching current
+    local options = {}
+    for _, item in ipairs(sd.tiers[nextTier]) do
+        if not item.from or item.from == currentId then
+            options[#options + 1] = item
+        end
+    end
+
+    return #options > 0 and options or nil
+end
 
 local RARITY_COL = {
     [1] = { 0.60, 0.60, 0.60, 1.0 },  -- common (gray)
@@ -243,7 +310,8 @@ local player = {
     chargeTimer = 0,
     charging    = false,
     iframes     = 0,
-    slotTier    = { 0, 0, 0 },  -- current tier per slot (0 = empty, 1-5)
+    slotTier    = { 0, 0, 0 },  -- current tier per slot (0 = empty, 1-4)
+    slotChoice  = { nil, nil, nil },  -- chosen item ID per slot (for branching)
     combineMsg  = nil,          -- { text, timer, itemId, rarity } flash message
 }
 
@@ -251,7 +319,17 @@ local player = {
 local function getEquipped(slot)
     local tier = player.slotTier[slot]
     if tier <= 0 then return nil end
-    return SLOT_DATA[slot].tiers[tier]
+    local choiceId = player.slotChoice[slot]
+    local tierItems = SLOT_DATA[slot].tiers[tier]
+    if not tierItems then return nil end
+    -- Find the chosen item in this tier
+    if choiceId then
+        for _, item in ipairs(tierItems) do
+            if item.id == choiceId then return item end
+        end
+    end
+    -- Fallback: first item in tier
+    return tierItems[1]
 end
 
 -- Determine which game level the player is on (1-3) based on player level
@@ -1024,11 +1102,11 @@ end
 local function rollDrop(ex, ey, dropChance)
     if math.random() > dropChance then return end
 
-    -- Pick a random slot that can still upgrade (not maxed)
+    -- Pick a random slot that can still upgrade
     local candidates = {}
     for slot = 1, 3 do
-        local maxTier = #SLOT_DATA[slot].tiers
-        if player.slotTier[slot] < maxTier then
+        local options = getUpgradeOptions(slot)
+        if options and #options > 0 then
             candidates[#candidates + 1] = slot
         end
     end
@@ -1040,32 +1118,50 @@ local function rollDrop(ex, ey, dropChance)
     end
 
     local slot = candidates[math.random(#candidates)]
-    local icons = SLOT_DATA[slot].dropIcons
-    local dropIcon = icons[math.random(#icons)]
+    local options = getUpgradeOptions(slot)
 
-    table.insert(drops, { x = ex, y = ey, slot = slot, iconId = dropIcon, timer = 300 })
+    -- At T1-T2 (no choice): show generic crystal/ore icon
+    -- At T3+ (branching): show the ACTUAL item icon so player can choose
+    local tier = player.slotTier[slot]
+    local chosenOption = options[math.random(#options)]
+
+    local dropIcon
+    if #options > 1 then
+        -- Branching tier: show the specific item icon
+        dropIcon = chosenOption.id
+    else
+        -- Linear tier: show generic material icon
+        local icons = SLOT_DATA[slot].dropIcons
+        dropIcon = icons[math.random(#icons)]
+    end
+
+    table.insert(drops, {
+        x = ex, y = ey,
+        slot = slot,
+        iconId = dropIcon,
+        upgradeItem = chosenOption,  -- the specific item this drop upgrades to
+        timer = 300,
+    })
 end
 
 local function pickupDrop(drop)
     local slot = drop.slot
-    local sd = SLOT_DATA[slot]
-    local maxTier = #sd.tiers
+    local item = drop.upgradeItem
 
-    if player.slotTier[slot] >= maxTier then
-        -- Already maxed: bonus XP
+    if not item then
         player.xp = player.xp + 25
         return true
     end
 
-    -- Upgrade to next tier
+    -- Upgrade
     player.slotTier[slot] = player.slotTier[slot] + 1
-    local newItem = sd.tiers[player.slotTier[slot]]
+    player.slotChoice[slot] = item.id
 
     player.combineMsg = {
-        text   = newItem.name .. '!',
+        text   = item.name .. '!',
         timer  = 90,
-        itemId = newItem.id,
-        rarity = newItem.rarity,
+        itemId = item.id,
+        rarity = item.rarity,
     }
 
     -- Update max HP
@@ -1097,6 +1193,7 @@ local function resetGame(classId)
     player.charging  = false
     player.iframes   = 0
     player.slotTier   = { 0, 0, 0 }
+    player.slotChoice = { nil, nil, nil }
     player.combineMsg = nil
 
     playerProj = {}
@@ -1919,15 +2016,26 @@ local function renderSidePanel()
             if #parts > 0 then
                 imgui.TextColored({ 0.40, 0.70, 0.40, 0.80 }, table.concat(parts, '  '))
             end
-            -- Tooltip: show upgrade path
+            -- Tooltip: show upgrade tree
             if imgui.IsItemHovered() then
                 imgui.BeginTooltip()
-                for t, tierData in ipairs(sd.tiers) do
-                    local trc = RARITY_COL[tierData.rarity] or RARITY_COL[1]
-                    local prefix = (t == tier) and '> ' or '  '
-                    local alpha = (t <= tier) and 1.0 or 0.4
-                    imgui.TextColored({ trc[1], trc[2], trc[3], alpha },
-                        string.format('%sT%d: %s', prefix, t, tierData.name))
+                for t, tierItems in ipairs(sd.tiers) do
+                    for _, tierItem in ipairs(tierItems) do
+                        local trc = RARITY_COL[tierItem.rarity] or RARITY_COL[1]
+                        local isCurrent = (player.slotChoice[slot] == tierItem.id)
+                        local isOwned = false
+                        -- Check if this item is in our upgrade path
+                        if t < tier then
+                            isOwned = true
+                        elseif t == tier and tierItem.id == (player.slotChoice[slot] or tierItems[1].id) then
+                            isOwned = true
+                            isCurrent = true
+                        end
+                        local prefix = isCurrent and '> ' or '  '
+                        local alpha = isOwned and 1.0 or 0.35
+                        imgui.TextColored({ trc[1], trc[2], trc[3], alpha },
+                            string.format('%sT%d: %s', prefix, t, tierItem.name))
+                    end
                 end
                 imgui.EndTooltip()
             end
