@@ -138,10 +138,10 @@ local CLASS_DEF = {
         mp     = 50,
         projIcon   = 17318,  -- Wooden Arrow
         projColor  = 0xFFDDDD88,
-        projSpeed  = 6,
+        projSpeed  = 5,
         projSize   = 2,
-        projDmg    = 8,
-        projRate   = 6,
+        projDmg    = 7,
+        projRate   = 10,
         chargeColor = 0xFFFFFF44,
         chargeDmg   = 5,
         chargeSize  = 2,
@@ -248,39 +248,7 @@ local SLOT_DATA = {
     },
 }
 
--- Lookup: given current equipped item ID for a slot, what can upgrade next?
-local function getUpgradeOptions(slot)
-    local sd = SLOT_DATA[slot]
-    local tier = player.slotTier[slot]
-    local nextTier = tier + 1
-    if not sd.tiers[nextTier] then return nil end
-
-    if tier == 0 then
-        -- No equipment yet: return T1 options (always just one)
-        return sd.tiers[1]
-    end
-
-    -- Get current item ID
-    local currentItem = sd.tiers[tier]
-    local currentId = nil
-    if player.slotChoice and player.slotChoice[slot] then
-        currentId = player.slotChoice[slot]
-    elseif #currentItem == 1 then
-        currentId = currentItem[1].id
-    end
-
-    if not currentId then return sd.tiers[nextTier] end
-
-    -- Filter next tier by 'from' matching current
-    local options = {}
-    for _, item in ipairs(sd.tiers[nextTier]) do
-        if not item.from or item.from == currentId then
-            options[#options + 1] = item
-        end
-    end
-
-    return #options > 0 and options or nil
-end
+-- getUpgradeOptions defined after player state (needs player reference)
 
 local RARITY_COL = {
     [1] = { 0.60, 0.60, 0.60, 1.0 },  -- common (gray)
@@ -314,6 +282,38 @@ local player = {
     slotChoice  = { nil, nil, nil },  -- chosen item ID per slot (for branching)
     combineMsg  = nil,          -- { text, timer, itemId, rarity } flash message
 }
+
+-- Lookup: given current equipped item ID for a slot, what can upgrade next?
+local function getUpgradeOptions(slot)
+    local sd = SLOT_DATA[slot]
+    local tier = player.slotTier[slot]
+    local nextTier = tier + 1
+    if not sd.tiers[nextTier] then return nil end
+
+    if tier == 0 then
+        return sd.tiers[1]
+    end
+
+    local currentId = player.slotChoice[slot]
+    if not currentId then
+        -- Fallback: use first item at current tier
+        local currentItems = sd.tiers[tier]
+        if currentItems and #currentItems == 1 then
+            currentId = currentItems[1].id
+        end
+    end
+
+    if not currentId then return sd.tiers[nextTier] end
+
+    local options = {}
+    for _, item in ipairs(sd.tiers[nextTier]) do
+        if not item.from or item.from == currentId then
+            options[#options + 1] = item
+        end
+    end
+
+    return #options > 0 and options or nil
+end
 
 -- Get the equipped item data for a slot (nil if empty)
 local function getEquipped(slot)
@@ -1871,41 +1871,63 @@ local function renderMenuOverlay()
 
     imgui.Spacing()
     imgui.Spacing()
+    imgui.Spacing()
 
     -- Title
     local menuW = TEX_W
     imgui.SetCursorPosX((menuW - imgui.CalcTextSize('CRYSTAL WARS')) / 2)
     imgui.TextColored({ 0.90, 0.75, 0.30, 1.0 }, 'CRYSTAL WARS')
     imgui.Spacing()
+    imgui.Spacing()
 
-    imgui.SetCursorPosX((menuW - imgui.CalcTextSize('Select your class:')) / 2)
-    imgui.TextColored({ 0.60, 0.60, 0.65, 1.0 }, 'Select your class:')
-    imgui.Spacing()
-    imgui.Spacing()
+    local cardW = menuW - 24
+    local cardH = 52
 
     for id, def in ipairs(CLASS_DEF) do
         local r = bit.band(bit.rshift(def.color, 16), 0xFF) / 255
         local g = bit.band(bit.rshift(def.color, 8), 0xFF) / 255
         local b = bit.band(def.color, 0xFF) / 255
 
-        -- Icon + button row
-        imgui.SetCursorPosX(20)
+        -- Card as a styled child window (acts as button)
+        imgui.SetCursorPosX(12)
+        imgui.PushStyleColor(ImGuiCol_ChildBg, { r * 0.15, g * 0.15, b * 0.15, 0.90 })
+        imgui.PushStyleColor(ImGuiCol_Border, { r * 0.4, g * 0.4, b * 0.4, 0.50 })
+        imgui.BeginChild(string.format('##class_%d', id), { cardW, cardH }, true,
+            bit.bor(ImGuiWindowFlags_NoScrollbar, ImGuiWindowFlags_NoScrollWithMouse))
+
+        -- Icon on the left
+        imgui.SetCursorPos({ 6, 6 })
         if renderIcon and def.icon then
-            renderIcon(def.icon, 28)
-            imgui.SameLine(0, 8)
+            renderIcon(def.icon, 40)
         end
 
-        local btnW = menuW - 80
-        imgui.PushStyleColor(ImGuiCol_Button,        { r * 0.4, g * 0.4, b * 0.4, 0.8 })
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered,  { r * 0.6, g * 0.6, b * 0.6, 0.9 })
-        imgui.PushStyleColor(ImGuiCol_ButtonActive,   { r * 0.8, g * 0.8, b * 0.8, 1.0 })
-        if imgui.Button(def.name .. '##shmup_class', { btnW, 28 }) then
+        -- Name + stats on the right
+        imgui.SetCursorPos({ 52, 6 })
+        imgui.TextColored({ r, g, b, 1.0 }, def.name)
+
+        imgui.SetCursorPos({ 52, 22 })
+        imgui.TextColored({ 0.55, 0.55, 0.60, 1.0 },
+            string.format('HP:%d  SPD:%.1f  DMG:%d', def.hp, def.speed, def.projDmg))
+
+        imgui.SetCursorPos({ 52, 36 })
+        imgui.TextColored({ 0.45, 0.45, 0.50, 1.0 }, def.desc)
+
+        imgui.EndChild()
+        imgui.PopStyleColor(2)
+
+        -- Click the card to select class
+        if imgui.IsItemHovered() then
+            -- Hover highlight
+            local dl = imgui.GetWindowDrawList()
+            local wx, wy = imgui.GetItemRectMin()
+            local wx2, wy2 = imgui.GetItemRectMax()
+            dl:AddRect({ wx, wy }, { wx2, wy2 },
+                imgui.GetColorU32({ r, g, b, 0.60 }), 4, 0, 2)
+        end
+        if imgui.IsItemClicked() then
             resetGame(id)
         end
-        imgui.PopStyleColor(3)
 
-        imgui.SetCursorPosX(58)
-        imgui.TextColored({ 0.50, 0.50, 0.55, 1.0 }, def.desc)
         imgui.Spacing()
     end
 
